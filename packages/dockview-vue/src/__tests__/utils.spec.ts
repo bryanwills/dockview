@@ -456,4 +456,42 @@ describe('VueHeaderActionsRenderer', () => {
 
         renderer.dispose();
     });
+
+    test('should preserve full params including api after reactive updates', () => {
+        // Regression test for https://github.com/mathuo/dockview/issues/1127
+        // Partial updates (e.g. isGroupActive) must not discard api and other fields
+        const renderer = new VueHeaderActionsRenderer(
+            mockComponent,
+            mockParent,
+            groupPanel
+        );
+
+        const mockContainerApi = {} as any;
+
+        renderer.init({
+            api: groupPanel.api,
+            containerApi: mockContainerApi,
+            group: groupPanel as any,
+        });
+
+        (cloneVNode as jest.Mock).mockClear();
+
+        isGroupActive = false;
+        onDidActiveChange.fire(undefined);
+
+        expect(cloneVNode as jest.Mock).toHaveBeenCalledTimes(1);
+        const updatedProps = (cloneVNode as jest.Mock).mock.calls[0][1];
+        expect(updatedProps.params).toEqual(
+            expect.objectContaining({
+                api: groupPanel.api,
+                containerApi: mockContainerApi,
+                panels: panels,
+                activePanel: activePanel,
+                isGroupActive: false,
+                group: groupPanel,
+            })
+        );
+
+        renderer.dispose();
+    });
 });
