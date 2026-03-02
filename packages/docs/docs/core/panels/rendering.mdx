@@ -71,20 +71,11 @@ api.addPanel({
 <CodeRunner id="dockview/render-mode"/>
 
 
-By default `DockviewReact` only adds to the DOM those panels that are visible,
-if a panel is not the active tab and not shown the contents of the hidden panel will be removed from the DOM.
+When a panel uses `always` render mode, the panel component instance is kept alive even when the panel is not visible. This means reactive state, subscriptions, and lifecycle hooks continue to run in the background.
 
-When a panel is in `onlyWhenVisible` render mode this only affects the contents within the DOM. The lifecycle of that panel instance is still maintained.
-The React Components associated with each panel are only created once and will always exist for as long as the panel exists, hidden or not.
+You can listen to `onDidVisibilityChange` to gate expensive work, or conditionally render inner content only when the panel is visible.
 
-> e.g. This means that any hooks in those components will run whether the panel is visible or not which may lead to excessive background work depending
-> on the panels implementation.
-
-You can listen to the visiblity state of the panel and write additional logic to optimize your application if required, although this is an advanced case.
-
-If you wanted to unmount the React Components when the panel is not visible you could create a Higher-Order-Component that listens to the panels
-visiblity state and only renders the panel when visible.
-
+<FrameworkSpecific framework='React'>
 ```tsx title="Only rendering the React Component when the panel is visible, otherwise rendering a null React Component"
 import { IDockviewPanelProps } from 'dockview';
 import * as React from 'react';
@@ -120,8 +111,97 @@ function RenderWhenVisible(
 ```tsx
 const components = { default: RenderWhenVisible(MyComponent) };
 ```
+</FrameworkSpecific>
 
-Toggling the checkbox you can see that when you only render those panels which are visible the underling React component is destroyed when it becomes hidden and re-created when it becomes visible.
+<FrameworkSpecific framework='Vue'>
+```vue title="Conditionally rendering content based on panel visibility"
+<script setup lang="ts">
+import { ref, onMounted, onUnmounted } from 'vue';
+import type { IDockviewPanelProps } from 'dockview-vue';
+
+const props = defineProps<IDockviewPanelProps>();
+
+const visible = ref(props.api.isVisible);
+
+const disposable = props.api.onDidVisibilityChange((event) => {
+    visible.value = event.isVisible;
+});
+
+onUnmounted(() => {
+    disposable.dispose();
+});
+</script>
+
+<template>
+    <template v-if="visible">
+        <!-- expensive panel content — only mounted when panel is visible -->
+    </template>
+</template>
+```
+</FrameworkSpecific>
+
+<FrameworkSpecific framework='Angular'>
+```ts title="Conditionally rendering content based on panel visibility"
+import { Component, Input, OnInit, OnDestroy } from '@angular/core';
+import type { DockviewPanelApi } from 'dockview-angular';
+
+@Component({
+    selector: 'my-panel',
+    template: `
+        <ng-container *ngIf="visible">
+            <!-- expensive panel content — only rendered when panel is visible -->
+        </ng-container>
+    `,
+})
+export class MyPanel implements OnInit, OnDestroy {
+    @Input() api: DockviewPanelApi;
+
+    visible = false;
+    private disposable: { dispose(): void };
+
+    ngOnInit() {
+        this.visible = this.api.isVisible;
+        this.disposable = this.api.onDidVisibilityChange((event) => {
+            this.visible = event.isVisible;
+        });
+    }
+
+    ngOnDestroy() {
+        this.disposable?.dispose();
+    }
+}
+```
+</FrameworkSpecific>
+
+<FrameworkSpecific framework='JavaScript'>
+```ts title="Gating work based on panel visibility"
+class MyPanel implements IContentRenderer {
+    private readonly _element: HTMLElement;
+
+    get element() {
+        return this._element;
+    }
+
+    constructor() {
+        this._element = document.createElement('div');
+    }
+
+    init(parameters: GroupviewPanelState): void {
+        parameters.api.onDidVisibilityChange((event) => {
+            if (event.isVisible) {
+                // panel is now visible — start expensive work
+            } else {
+                // panel is hidden — pause expensive work
+            }
+        });
+    }
+
+    dispose(): void {}
+}
+```
+</FrameworkSpecific>
+
+Toggling the checkbox in the live example shows the panel component being destroyed when hidden and re-created when it becomes visible again.
 
 
 <MultiFrameworkContainer

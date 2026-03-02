@@ -16,6 +16,7 @@ for another attempt with a valid object.
 
 You could load a previously saved layout from local storage for example.
 
+<FrameworkSpecific framework='React'>
 ```tsx
 const onReady = (event: DockviewReadyEvent) => {
     let success = false;
@@ -33,12 +34,104 @@ const onReady = (event: DockviewReadyEvent) => {
     }
 
     if (!success) {
-        // perhap load a default layout?
+        // perhaps load a default layout?
     }
 };
 
 return <DockviewComponent onReady={onReady}/>;
 ```
+</FrameworkSpecific>
+
+<FrameworkSpecific framework='Vue'>
+```vue
+<script setup lang="ts">
+import type { DockviewReadyEvent } from 'dockview-vue';
+
+function onReady(event: DockviewReadyEvent) {
+    let success = false;
+
+    const mySerializedLayout = localStorage.getItem('my_layout');
+
+    if (mySerializedLayout) {
+        try {
+            const layout = JSON.parse(mySerializedLayout);
+            event.api.fromJSON(layout);
+            success = true;
+        } catch (err) {
+            // log the error
+        }
+    }
+
+    if (!success) {
+        // perhaps load a default layout?
+    }
+}
+</script>
+
+<template>
+    <dockview-vue @ready="onReady" />
+</template>
+```
+</FrameworkSpecific>
+
+<FrameworkSpecific framework='Angular'>
+```ts
+import { Component } from '@angular/core';
+import type { DockviewReadyEvent } from 'dockview-angular';
+
+@Component({
+    selector: 'app-root',
+    template: `<dv-dockview (ready)="onReady($event)"></dv-dockview>`,
+})
+export class AppComponent {
+    onReady(event: DockviewReadyEvent) {
+        let success = false;
+
+        const mySerializedLayout = localStorage.getItem('my_layout');
+
+        if (mySerializedLayout) {
+            try {
+                const layout = JSON.parse(mySerializedLayout);
+                event.api.fromJSON(layout);
+                success = true;
+            } catch (err) {
+                // log the error
+            }
+        }
+
+        if (!success) {
+            // perhaps load a default layout?
+        }
+    }
+}
+```
+</FrameworkSpecific>
+
+<FrameworkSpecific framework='JavaScript'>
+```ts
+import { createDockview } from 'dockview-core';
+
+const api = createDockview(parentElement, { /* options */ });
+
+let success = false;
+
+const mySerializedLayout = localStorage.getItem('my_layout');
+
+if (mySerializedLayout) {
+    try {
+        const layout = JSON.parse(mySerializedLayout);
+        api.fromJSON(layout);
+        success = true;
+    } catch (err) {
+        // log the error
+    }
+}
+
+if (!success) {
+    // perhaps load a default layout?
+}
+```
+</FrameworkSpecific>
 
 # Live Example
 

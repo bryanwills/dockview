@@ -273,6 +273,72 @@ const MyTab = (props: IDockviewPanelHeaderProps<MyParameters>) => {
 ```
 </FrameworkSpecific>
 
+<FrameworkSpecific framework='Vue'>
+```ts
+// In your Vue tab component
+import { defineComponent } from 'vue';
+import type { IDockviewPanelHeaderProps } from 'dockview-vue';
+
+type MyParameters = { my_value: number };
+
+export default defineComponent({
+    props: {
+        params: {
+            type: Object as () => MyParameters,
+            required: true,
+        },
+    },
+    template: `<div>{{ params.my_value }}</div>`,
+});
+```
+</FrameworkSpecific>
+
+<FrameworkSpecific framework='Angular'>
+```ts
+import { Component, Input } from '@angular/core';
+import type { IDockviewPanelHeaderProps } from 'dockview-angular';
+
+type MyParameters = { my_value: number };
+
+@Component({
+    selector: 'my-tab',
+    template: `<div>{{ params.my_value }}</div>`,
+})
+export class MyTab {
+    @Input() params: MyParameters;
+}
+```
+</FrameworkSpecific>
+
+<FrameworkSpecific framework='JavaScript'>
+```ts
+import type { HeaderPartInitParameters } from 'dockview-core';
+
+type MyParameters = { my_value: number };
+
+class MyTab implements IHeaderRenderer {
+    private readonly _element: HTMLElement;
+
+    get element(): HTMLElement {
+        return this._element;
+    }
+
+    constructor() {
+        this._element = document.createElement('div');
+    }
+
+    init(parameters: HeaderPartInitParameters): void {
+        // parameters.params is typed as unknown; cast to your type
+        const params = parameters.params as MyParameters;
+        const value: number = params.my_value;
+        this._element.textContent = String(value);
+    }
+
+    dispose(): void {}
+}
+```
+</FrameworkSpecific>
+
 
 ## Extend the Default Tab Implementation
 
@@ -294,6 +360,24 @@ const MyCustomTab = (props: IDockviewPanelHeaderProps) => {
     return <DockviewDefaultTab onContextMenu={onContextMenu} hideClose={true} {...props} />;
 };
 ```
+</FrameworkSpecific>
+
+<FrameworkSpecific framework='Vue'>
+:::info
+`DockviewDefaultTab` is a React component. In Vue, implement tab extensions by composing your own tab component from scratch using the tab API and event listeners.
+:::
+</FrameworkSpecific>
+
+<FrameworkSpecific framework='Angular'>
+:::info
+`DockviewDefaultTab` is a React component. In Angular, implement tab extensions by composing your own tab component from scratch using the injected `DockviewPanelApi`.
+:::
+</FrameworkSpecific>
+
+<FrameworkSpecific framework='JavaScript'>
+:::info
+`DockviewDefaultTab` is a React component. In vanilla TypeScript, implement tab extensions by subclassing or composing your own `IHeaderRenderer` from scratch.
+:::
 </FrameworkSpecific>
 
 As a simple example the below attaches a custom event handler for the context menu on all tabs as a default tab renderer
@@ -323,9 +407,31 @@ When a group has only one single tab you may want that tab to take the full widt
   <DocRef declaration="DockviewComponentOptions" methods={['singleTabMode']} />
 </FrameworkSpecific>
 
+<FrameworkSpecific framework='React'>
 ```tsx
 return <DockviewReactComponent singleTabMode="fullwidth" />
 ```
+</FrameworkSpecific>
+
+<FrameworkSpecific framework='Vue'>
+```html
+<dockview-vue singleTabMode="fullwidth" />
+```
+</FrameworkSpecific>
+
+<FrameworkSpecific framework='Angular'>
+```html
+<dv-dockview [singleTabMode]="'fullwidth'"></dv-dockview>
+```
+</FrameworkSpecific>
+
+<FrameworkSpecific framework='JavaScript'>
+```ts
+const api = createDockview(parentElement, {
+    singleTabMode: 'fullwidth',
+});
+```
+</FrameworkSpecific>
 
 <MultiFrameworkContainer
     sandboxId="fullwidthtab-dockview"

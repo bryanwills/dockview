@@ -12,28 +12,101 @@ This section describes how to serialize a dockview instance.
 To retrieve the current state of the dock call `toJSON()`.
 You can listen to the event `onDidlayoutChange` to determine when the layout has changed.
 
+<FrameworkSpecific framework='React'>
 ```tsx
 const [api, setApi] = React.useState<DockviewApi>();
 
 React.useEffect(() => {
-  if(!api) {
-    return;
-  }
+    if (!api) {
+        return;
+    }
 
-  const disposable = api.onDidLayoutChange(() => {
-    const layout: SerializedDockview = api.toJSON();
-    localStorage.setItem('my_layout', JSON.stringify(layout));
-  });
+    const disposable = api.onDidLayoutChange(() => {
+        const layout: SerializedDockview = api.toJSON();
+        localStorage.setItem('my_layout', JSON.stringify(layout));
+    });
 
-  return () => disposable.dispose();
+    return () => disposable.dispose();
 }, [api]);
 
 const onReady = (event: DockviewReadyEvent) => {
-  setApi(event.api);
+    setApi(event.api);
+};
+
+return <DockviewComponent onReady={onReady} />;
+```
+</FrameworkSpecific>
+
+<FrameworkSpecific framework='Vue'>
+```vue
+<script setup lang="ts">
+import { ref, onUnmounted } from 'vue';
+import type { DockviewApi, DockviewReadyEvent, SerializedDockview } from 'dockview-vue';
+
+const api = ref<DockviewApi>();
+let layoutDisposable: { dispose(): void } | undefined;
+
+function onReady(event: DockviewReadyEvent) {
+    api.value = event.api;
+    layoutDisposable = api.value.onDidLayoutChange(() => {
+        const layout: SerializedDockview = api.value!.toJSON();
+        localStorage.setItem('my_layout', JSON.stringify(layout));
+    });
 }
 
-return <DockviewComponent onReady={onReady}/>
+onUnmounted(() => {
+    layoutDisposable?.dispose();
+});
+</script>
+
+<template>
+    <dockview-vue @ready="onReady" />
+</template>
 ```
+</FrameworkSpecific>
+
+<FrameworkSpecific framework='Angular'>
+```ts
+import { Component, OnDestroy } from '@angular/core';
+import type { DockviewApi, DockviewReadyEvent, SerializedDockview } from 'dockview-angular';
+
+@Component({
+    selector: 'app-root',
+    template: `<dv-dockview (ready)="onReady($event)"></dv-dockview>`,
+})
+export class AppComponent implements OnDestroy {
+    private api: DockviewApi;
+    private layoutDisposable: { dispose(): void };
+
+    onReady(event: DockviewReadyEvent) {
+        this.api = event.api;
+        this.layoutDisposable = this.api.onDidLayoutChange(() => {
+            const layout: SerializedDockview = this.api.toJSON();
+            localStorage.setItem('my_layout', JSON.stringify(layout));
+        });
+    }
+
+    ngOnDestroy() {
+        this.layoutDisposable?.dispose();
+    }
+}
+```
+</FrameworkSpecific>
+
+<FrameworkSpecific framework='JavaScript'>
+```ts
+import { createDockview } from 'dockview-core';
+
+const api = createDockview(parentElement, { /* options */ });
+
+const disposable = api.onDidLayoutChange(() => {
+    const layout = api.toJSON();
+    localStorage.setItem('my_layout', JSON.stringify(layout));
+});
+
+// Call disposable.dispose() when tearing down the dock
+```
+</FrameworkSpecific>
 
 # Live Example
 

@@ -45,15 +45,57 @@ Firstly, you should import `dockview.css`:
 For dock components you should pass the theme object to the `theme` property, for other components such as split, pane and grid views you should
 use set the themes associated CSS class to the `className` property.
 
+<FrameworkSpecific framework='React'>
 ```tsx
 import { themeAbyss } from "dockview";
 
 // For dock components
-theme={themeAbyss}
+<DockviewReactComponent theme={themeAbyss} />
 
-// For other components
-const {className} = themeAbyss;
+// For other components (splitview, gridview, paneview)
+const { className } = themeAbyss;
 ```
+</FrameworkSpecific>
+
+<FrameworkSpecific framework='Vue'>
+```ts
+import { themeAbyss } from "dockview-vue";
+```
+```html
+<!-- For dock components -->
+<dockview-vue :theme="themeAbyss" />
+
+<!-- For other components (splitview, gridview, paneview) -->
+<splitview-vue :class="themeAbyss.className" />
+```
+</FrameworkSpecific>
+
+<FrameworkSpecific framework='Angular'>
+```ts
+import { themeAbyss } from "dockview-angular";
+```
+```html
+<!-- For dock components -->
+<dv-dockview [theme]="themeAbyss"></dv-dockview>
+
+<!-- For other components (splitview, gridview, paneview) -->
+<dv-splitview [class]="themeAbyss.className"></dv-splitview>
+```
+</FrameworkSpecific>
+
+<FrameworkSpecific framework='JavaScript'>
+```ts
+import { themeAbyss, createDockview } from "dockview-core";
+
+// For dock components
+const api = createDockview(parentElement, {
+    theme: themeAbyss,
+});
+
+// For other components (splitview, gridview, paneview)
+const { className } = themeAbyss;
+```
+</FrameworkSpecific>
 
 <ThemeTable/>
 

@@ -24,13 +24,14 @@ This section describes how you can customize the header component of each group.
 </FrameworkSpecific>
 
 
+<FrameworkSpecific framework='React'>
 ```tsx
 const LeftComponent = (props: IDockviewHeaderActionsProps) => {
     return <div>{/** content */}</div>;
 };
 
 const RightComponent = (props: IDockviewHeaderActionsProps) => {
-       return <div>{/** content */}</div>;
+    return <div>{/** content */}</div>;
 };
 
 const PrefixComponent = (props: IDockviewHeaderActionsProps) => {
@@ -38,11 +39,79 @@ const PrefixComponent = (props: IDockviewHeaderActionsProps) => {
 };
 
 return <DockviewReact
-  leftHeaderActionsComponent={LeftComponent}
-  rightHeaderActionsComponent={RightComponent}
-  prefixHeaderActionsComponent={PrefixComponent}
+    leftHeaderActionsComponent={LeftComponent}
+    rightHeaderActionsComponent={RightComponent}
+    prefixHeaderActionsComponent={PrefixComponent}
 />;
 ```
+</FrameworkSpecific>
+
+<FrameworkSpecific framework='Vue'>
+```vue
+<!-- Register components by name, then pass the names to dockview-vue -->
+<script setup lang="ts">
+import LeftComponent from './LeftComponent.vue';
+import RightComponent from './RightComponent.vue';
+import PrefixComponent from './PrefixComponent.vue';
+</script>
+
+<template>
+    <dockview-vue
+        leftHeaderActionsComponent="LeftComponent"
+        rightHeaderActionsComponent="RightComponent"
+        prefixHeaderActionsComponent="PrefixComponent"
+        :components="{ LeftComponent, RightComponent, PrefixComponent }"
+    />
+</template>
+```
+</FrameworkSpecific>
+
+<FrameworkSpecific framework='Angular'>
+```ts
+import { Component } from '@angular/core';
+import { LeftComponent } from './left.component';
+import { RightComponent } from './right.component';
+import { PrefixComponent } from './prefix.component';
+
+@Component({
+    selector: 'app-root',
+    template: `
+        <dv-dockview
+            [leftHeaderActionsComponent]="leftComponent"
+            [rightHeaderActionsComponent]="rightComponent"
+            [prefixHeaderActionsComponent]="prefixComponent"
+        ></dv-dockview>
+    `,
+})
+export class AppComponent {
+    leftComponent = LeftComponent;
+    rightComponent = RightComponent;
+    prefixComponent = PrefixComponent;
+}
+```
+</FrameworkSpecific>
+
+<FrameworkSpecific framework='JavaScript'>
+```ts
+const api = createDockview(parentElement, {
+    createLeftHeaderActionsElement: (group) => {
+        const element = document.createElement('div');
+        // populate element
+        return { element, dispose: () => {} };
+    },
+    createRightHeaderActionsElement: (group) => {
+        const element = document.createElement('div');
+        // populate element
+        return { element, dispose: () => {} };
+    },
+    createPrefixHeaderActionsElement: (group) => {
+        const element = document.createElement('div');
+        // populate element
+        return { element, dispose: () => {} };
+    },
+});
+```
+</FrameworkSpecific>
 
 ## Live Example
 

@@ -25,25 +25,62 @@ The dock makes heavy use of drag and drop functionalities.
 
 You can override the conditions of the far edge overlays through the `dndEdges` prop.
 
+<FrameworkSpecific framework='React'>
 ```tsx
 <DockviewReact
-  {...props}
-   dndEdges={{
+    dndEdges={{
+        size: { value: 100, type: 'pixels' },
+        activationSize: { value: 5, type: 'percentage' },
+    }}
+/>
+```
+</FrameworkSpecific>
+
+<FrameworkSpecific framework='Vue'>
+```html
+<dockview-vue
+    :dndEdges="{
+        size: { value: 100, type: 'pixels' },
+        activationSize: { value: 5, type: 'percentage' },
+    }"
+/>
+```
+</FrameworkSpecific>
+
+<FrameworkSpecific framework='Angular'>
+```html
+<dv-dockview [dndEdges]="dndEdges"></dv-dockview>
+```
+```ts
+dndEdges = {
     size: { value: 100, type: 'pixels' },
     activationSize: { value: 5, type: 'percentage' },
-  }}
-  />
+};
 ```
+</FrameworkSpecific>
+
+<FrameworkSpecific framework='JavaScript'>
+```ts
+const api = createDockview(parentElement, {
+    dndEdges: {
+        size: { value: 100, type: 'pixels' },
+        activationSize: { value: 5, type: 'percentage' },
+    },
+});
+```
+</FrameworkSpecific>
 
 ## Extended behaviours
 
 For interaction with the Drag events directly the component exposes some method to help determine whether external drag events should be interacted with or not.
 
-```tsx
+The `onDidDrop` handler and `onUnhandledDragOverEvent` registration use the same API across all frameworks — only the component wiring differs.
+
+```ts
 /**
- * called when an ondrop event which does not originate from the dockview libray and
- * passes the onUnhandledDragOverEvent condition
- **/
+ * Called when a drop event does not originate from the dockview library
+ * and passes the onUnhandledDragOverEvent condition.
+ */
 const onDidDrop = (event: DockviewDropEvent) => {
     const { group } = event;
 
@@ -56,28 +93,52 @@ const onDidDrop = (event: DockviewDropEvent) => {
         },
     });
 };
+```
 
+```ts
+/**
+ * Called for drag-over events that do not originate from the dockview library,
+ * allowing you to decide whether an overlay should be shown.
+ */
 const onReady = (event: DockviewReadyEvent) => {
+    event.api.onUnhandledDragOverEvent((e) => {
+        e.accept();
+    });
+};
+```
 
-  /**
-   * called for drag over events which do not originate from the dockview library
-   * allowing the developer to decide where the overlay should be shown for a
-   * particular drag event
-   **/
-  api.onUnhandledDragOverEvent(event => {
-    event.accept();
-  });
-}
-
+<FrameworkSpecific framework='React'>
+```tsx
 return (
     <DockviewReact
         components={components}
         onReady={onReady}
-        className="dockview-theme-abyss"
         onDidDrop={onDidDrop}
     />
 );
 ```
+</FrameworkSpecific>
+
+<FrameworkSpecific framework='Vue'>
+```html
+<dockview-vue @ready="onReady" @didDrop="onDidDrop" />
+```
+</FrameworkSpecific>
+
+<FrameworkSpecific framework='Angular'>
+```html
+<dv-dockview (ready)="onReady($event)" (didDrop)="onDidDrop($event)"></dv-dockview>
+```
+</FrameworkSpecific>
+
+<FrameworkSpecific framework='JavaScript'>
+```ts
+const api = createDockview(parentElement, { components });
+
+api.onUnhandledDragOverEvent((e) => e.accept());
+parentElement.addEventListener('drop', (e) => onDidDrop(e));
+```
+</FrameworkSpecific>
 
 ## Third Party Dnd Libraries
 
