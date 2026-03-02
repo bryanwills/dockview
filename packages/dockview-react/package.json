@@ -1,6 +1,6 @@
 {
     "name": "dockview-react",
-    "version": "5.0.0",
+    "version": "5.1.0",
     "description": "React docking layout manager — tabs, groups, grids, splitviews, drag and drop, floating panels",
     "keywords": [
         "splitview",
@@ -64,6 +64,6 @@
         "format:check": "prettier --check 'src/**/*.{ts,tsx,js,jsx}'"
     },
     "dependencies": {
-        "dockview": "^5.0.0"
+        "dockview": "^5.1.0"
     }
 }
