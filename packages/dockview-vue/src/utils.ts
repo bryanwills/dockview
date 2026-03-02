@@ -210,6 +210,7 @@ export class VueHeaderActionsRenderer
         | { update: (props: any) => void; dispose: () => void }
         | undefined;
     private readonly _mutableDisposable = new DockviewMutableDisposable();
+    private _baseProps: IGroupHeaderProps | undefined;
 
     get element(): HTMLElement {
         return this._element;
@@ -224,35 +225,28 @@ export class VueHeaderActionsRenderer
     }
 
     init(props: IGroupHeaderProps): void {
+        this._baseProps = props;
+
         this._mutableDisposable.value = new DockviewCompositeDisposable(
             this.group.model.onDidAddPanel(() => {
-                this.updatePanels();
+                this.updateProps();
             }),
             this.group.model.onDidRemovePanel(() => {
-                this.updatePanels();
+                this.updateProps();
             }),
             this.group.model.onDidActivePanelChange(() => {
-                this.updateActivePanel();
+                this.updateProps();
             }),
             props.api.onDidActiveChange(() => {
-                this.updateGroupActive();
+                this.updateProps();
             })
         );
-
-        const enrichedProps: IDockviewHeaderActionsProps = {
-            ...props,
-            panels: this.group.model.panels,
-            activePanel: this.group.model.activePanel,
-            isGroupActive: this.group.api.isActive,
-            group: this.group,
-            headerPosition: this.group.model.headerPosition,
-        };
 
         this._renderDisposable?.dispose();
         this._renderDisposable = mountVueComponent(
             this.component,
             this.parent,
-            { params: enrichedProps },
+            { params: this.buildEnrichedProps() },
             this.element
         );
     }
@@ -262,22 +256,19 @@ export class VueHeaderActionsRenderer
         this._renderDisposable?.dispose();
     }
 
-    private updatePanels(): void {
-        this._renderDisposable?.update({
-            params: { panels: this.group.model.panels },
-        });
+    private buildEnrichedProps(): IDockviewHeaderActionsProps {
+        return {
+            ...this._baseProps!,
+            panels: this.group.model.panels,
+            activePanel: this.group.model.activePanel,
+            isGroupActive: this.group.api.isActive,
+            group: this.group,
+            headerPosition: this.group.model.headerPosition,
+        };
     }
 
-    private updateActivePanel(): void {
-        this._renderDisposable?.update({
-            params: { activePanel: this.group.model.activePanel },
-        });
-    }
-
-    private updateGroupActive(): void {
-        this._renderDisposable?.update({
-            params: { isGroupActive: this.group.api.isActive },
-        });
+    private updateProps(): void {
+        this._renderDisposable?.update({ params: this.buildEnrichedProps() });
     }
 }
 
