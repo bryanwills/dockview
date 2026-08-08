@@ -3,7 +3,10 @@ import React from 'react';
 import MDXComponents from '@theme-original/MDXComponents';
 import { FrameworkSpecific } from '@site/src/components/frameworkSpecific';
 import { CodeRunner } from '../components/ui/codeRunner';
-import { BlogFeedback } from '../components/ui/feedback/blogFeedback';
+import {
+    BlogFeedback,
+    BlogReaction,
+} from '../components/ui/feedback/blogFeedback';
 
 export default {
     // Re-use the default mapping
@@ -13,4 +16,5 @@ export default {
     FrameworkSpecific,
     CodeRunner,
     BlogFeedback,
+    BlogReaction,
 };

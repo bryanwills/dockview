@@ -1,13 +1,22 @@
 import React from 'react';
 
 // Anonymous page feedback: a one-click thumbs up/down reaction plus an optional
-// freeform message box. Both talk to the licensing worker's feedback API (the
-// same worker that serves /enterprise). Both are gated by Cloudflare Turnstile
-// using interaction-only widgets that stay invisible and mint a token in the
-// background, only surfacing if a visitor actually has to be challenged. So a
-// vote stays one click and the message box has no visible bot-check. Each action
-// keeps its own widget (tokens are single-use, so one can't cover both). One
-// vote per browser is kept client-side in localStorage.
+// freeform message box. They ship as two components, given the same id:
+// <BlogReaction> for the top of a post, where every reader passes it, and
+// <BlogFeedback> for the end, which repeats the vote for anyone who waited until
+// they'd read the argument and follows it with the message form. Voting in either
+// box locks both (see the subscriber registry below).
+//
+// Both talk to the licensing worker's feedback API (the same worker that serves
+// /enterprise), and both are gated by Cloudflare Turnstile using interaction-only
+// widgets that stay invisible and mint a token in the background, only surfacing
+// if a visitor actually has to be challenged. So a vote stays one click and the
+// message box has no visible bot-check. Each action keeps its own widget (tokens
+// are single-use, so one can't cover both).
+//
+// The running score is private: nothing here reads or displays the tallies, which
+// are visible only on the worker's /admin dashboard. All a visitor sees is
+// whether they personally reacted, kept client-side in localStorage.
 
 // Public Turnstile site key (safe to expose, it's rendered into the page). The
 // matching secret lives only in the licensing worker (TURNSTILE_SECRET_KEY).
@@ -61,6 +70,31 @@ function setVoted(id: string, vote: Vote): void {
     }
 }
 
+// A page can show the same feedback id in more than one place (a reaction box at
+// the top of a post and another at the end). Each keeps its own React state, so a
+// vote cast in one has to be announced to the others or they would sit there
+// looking unvoted until the next reload. Storage events don't help: the browser
+// doesn't fire them in the tab that wrote the value. So mounted widgets subscribe
+// here by id and the writer publishes to them directly.
+const voteSubscribers = new Map<string, Set<(vote: Vote) => void>>();
+
+function subscribeToVote(id: string, fn: (vote: Vote) => void): () => void {
+    let subscribers = voteSubscribers.get(id);
+    if (!subscribers) {
+        subscribers = new Set();
+        voteSubscribers.set(id, subscribers);
+    }
+    subscribers.add(fn);
+    return () => {
+        subscribers.delete(fn);
+        if (subscribers.size === 0) voteSubscribers.delete(id);
+    };
+}
+
+function publishVote(id: string, vote: Vote): void {
+    voteSubscribers.get(id)?.forEach((fn) => fn(vote));
+}
+
 declare global {
     interface Window {
         turnstile?: {
@@ -75,6 +109,7 @@ declare global {
                 }
             ) => string;
             reset: (id?: string) => void;
+            remove: (id?: string) => void;
         };
     }
 }
@@ -83,11 +118,13 @@ declare global {
 // managed widget is mostly automatic: with appearance 'interaction-only' it
 // stays invisible and issues a token in the background unless a real challenge
 // is needed. Tokens are single-use, so `reset` fetches a fresh one after a token
-// is spent. Multiple widgets can coexist on a page; each tracks its own id.
+// is spent, and `remove` retires the widget once no further token will be needed.
+// Multiple widgets can coexist on a page; each tracks its own id.
 function useTurnstileToken(appearance?: 'interaction-only'): {
     token: string;
     widgetRef: React.RefObject<HTMLDivElement>;
     reset: () => void;
+    remove: () => void;
 } {
     const [token, setToken] = React.useState('');
     const widgetRef = React.useRef<HTMLDivElement>(null);
@@ -124,6 +161,25 @@ function useTurnstileToken(appearance?: 'interaction-only'): {
         return () => script.removeEventListener('load', render);
     }, [appearance]);
 
+    // Retire the widget. Turnstile holds its own reference to the container, so a
+    // widget whose node React has since dropped (the message box swaps the form
+    // for a thank-you, and docs navigation is a SPA) would otherwise keep
+    // refreshing against a detached node and log "Cannot find Widget".
+    const remove = React.useCallback(() => {
+        if (widgetIdRef.current === null) return;
+        try {
+            window.turnstile?.remove(widgetIdRef.current);
+        } catch {
+            /* ignore */
+        }
+        widgetIdRef.current = null;
+        renderedRef.current = false;
+        setToken('');
+    }, []);
+
+    // Also retire it if the host unmounts with the widget still live.
+    React.useEffect(() => remove, [remove]);
+
     const reset = React.useCallback(() => {
         try {
             window.turnstile?.reset(widgetIdRef.current ?? undefined);
@@ -133,7 +189,7 @@ function useTurnstileToken(appearance?: 'interaction-only'): {
         setToken('');
     }, []);
 
-    return { token, widgetRef, reset };
+    return { token, widgetRef, reset, remove };
 }
 
 function ThumbIcon({ down }: { down?: boolean }): JSX.Element {
@@ -158,40 +214,32 @@ function ThumbIcon({ down }: { down?: boolean }): JSX.Element {
 }
 
 function Votes({ id }: { id: string }): JSX.Element {
-    const [counts, setCounts] = React.useState<{ up: number; down: number } | null>(
-        null
-    );
     const [mine, setMine] = React.useState<Vote | null>(null);
     const [busy, setBusy] = React.useState(false);
     // A vote clicked before Turnstile has issued a token, held until it lands.
     const [pending, setPending] = React.useState<Vote | null>(null);
     // Invisible unless a challenge is needed, so a vote stays one click.
-    const { token, widgetRef, reset } = useTurnstileToken('interaction-only');
+    const { token, widgetRef, reset, remove } = useTurnstileToken(
+        'interaction-only'
+    );
 
+    // Whether this browser already reacted. The tallies are deliberately not
+    // fetched: they're private to the admin dashboard, so there is nothing to
+    // show here and no public read to make. Staying subscribed keeps a second
+    // box for the same id in step when the other one is used.
     React.useEffect(() => {
-        // This browser's prior choice (if any) comes from localStorage; the
-        // tallies come from the shared counter.
         setMine(getVoted(id));
-        let cancelled = false;
-        fetch(feedbackApiUrl(`vote?id=${encodeURIComponent(id)}`))
-            .then((r) => (r.ok ? r.json() : null))
-            .then((data) => {
-                if (cancelled || !data) return;
-                setCounts({ up: data.up ?? 0, down: data.down ?? 0 });
-            })
-            .catch(() => {
-                /* counts stay hidden on failure */
-            });
-        return () => {
-            cancelled = true;
-        };
-    }, [id]);
+        return subscribeToVote(id, (vote) => {
+            setMine(vote);
+            // Another box spent the vote, so this widget's token never will be.
+            remove();
+        });
+    }, [id, remove]);
 
-    // Send the vote once a Turnstile token is in hand. The token is single-use,
-    // so we drop it afterwards; the browser is now locked, so no fresh one is
-    // needed.
+    // Send the vote once a Turnstile token is in hand.
     const send = React.useCallback(
         async (vote: Vote) => {
+            let landed = false;
             try {
                 const res = await fetch(feedbackApiUrl('vote'), {
                     method: 'POST',
@@ -199,19 +247,24 @@ function Votes({ id }: { id: string }): JSX.Element {
                     body: JSON.stringify({ id, vote, turnstileToken: token }),
                 });
                 if (res.ok) {
-                    const data = await res.json();
-                    setCounts({ up: data.up ?? 0, down: data.down ?? 0 });
-                    setMine(vote);
                     setVoted(id, vote);
+                    // Sets our own `mine` too, via the subscription above.
+                    publishVote(id, vote);
+                    landed = true;
                 }
             } catch {
                 /* swallow — the buttons unlock and the visitor can retry */
             } finally {
-                reset();
+                // The token is spent either way. Once the vote lands this browser
+                // is locked out, so retire the widget rather than have it solve
+                // another challenge nobody will spend; on failure swap in a fresh
+                // token so a retry can go through.
+                if (landed) remove();
+                else reset();
                 setBusy(false);
             }
         },
-        [id, token, reset]
+        [id, token, reset, remove]
     );
 
     // A click made before the token arrived fires the moment it does.
@@ -223,7 +276,7 @@ function Votes({ id }: { id: string }): JSX.Element {
         }
     }, [pending, token, send]);
 
-    // One-click counter: click a thumb to add to its tally. One vote per browser
+    // One click adds to a tally the visitor never sees. One vote per browser
     // (remembered in localStorage), so once you've reacted the buttons lock in.
     function cast(vote: Vote) {
         if (busy || mine) return;
@@ -263,28 +316,30 @@ function Votes({ id }: { id: string }): JSX.Element {
                     flexWrap: 'wrap',
                 }}
             >
-                <span style={{ fontWeight: 600 }}>Was this helpful?</span>
+                <span style={{ fontWeight: 600 }}>
+                    Is this a positive change?
+                </span>
                 <button
                     type="button"
                     onClick={() => cast('up')}
                     disabled={busy || voted}
                     aria-pressed={mine === 'up'}
-                    aria-label="Yes, this was helpful"
+                    aria-label="Yes, this is a positive change"
                     style={btn(mine === 'up')}
                 >
                     <ThumbIcon />
-                    {counts && <span>{counts.up}</span>}
+                    <span>Yes</span>
                 </button>
                 <button
                     type="button"
                     onClick={() => cast('down')}
                     disabled={busy || voted}
                     aria-pressed={mine === 'down'}
-                    aria-label="No, this was not helpful"
+                    aria-label="No, this is not a positive change"
                     style={btn(mine === 'down')}
                 >
                     <ThumbIcon down />
-                    {counts && <span>{counts.down}</span>}
+                    <span>No</span>
                 </button>
                 {voted && (
                     <span
@@ -355,7 +410,9 @@ function MessageBox({ id }: { id: string }): JSX.Element {
     // A submit made before Turnstile has issued its token, held until it lands.
     const [pendingSubmit, setPendingSubmit] = React.useState(false);
     // Interaction-only, so nothing shows unless a challenge is actually needed.
-    const { token, widgetRef, reset } = useTurnstileToken('interaction-only');
+    const { token, widgetRef, reset, remove } = useTurnstileToken(
+        'interaction-only'
+    );
 
     const doSubmit = React.useCallback(
         async (turnstileToken: string) => {
@@ -379,6 +436,9 @@ function MessageBox({ id }: { id: string }): JSX.Element {
                         data.error ?? 'Something went wrong. Please try again.'
                     );
                 }
+                // Retire the widget while its container is still mounted: the
+                // 'done' branch below replaces the whole form with a thank-you.
+                remove();
                 setStatus('done');
             } catch (err) {
                 setStatus('error');
@@ -390,7 +450,7 @@ function MessageBox({ id }: { id: string }): JSX.Element {
                 reset();
             }
         },
-        [id, message, email, company, reset]
+        [id, message, email, company, reset, remove]
     );
 
     // A submit queued before the token arrived fires the moment it does.
@@ -518,10 +578,15 @@ function MessageBox({ id }: { id: string }): JSX.Element {
     );
 }
 
-// The `id` prop keys the feedback (votes are deduped, messages tagged) so one
-// widget can serve several pages, e.g. id="v8-feedback". Defaults to the current
-// path when omitted.
-export function BlogFeedback({ id }: { id?: string }): JSX.Element {
+// The anchor the reaction box links down to, so a reader who wants to say more
+// than a thumb can jump straight to the message form.
+const MESSAGE_ANCHOR = 'feedback';
+
+// The `id` prop keys the feedback (the vote tally, and the tag on each message)
+// so one widget can serve several pages, e.g. id="v8-feedback". Defaults to the
+// current path when omitted. Returns '' until a key is known, which holds the
+// API call back during the first client render when no prop was given.
+function useFeedbackId(id?: string): string {
     const [resolvedId, setResolvedId] = React.useState(id ?? '');
 
     React.useEffect(() => {
@@ -530,18 +595,60 @@ export function BlogFeedback({ id }: { id?: string }): JSX.Element {
         }
     }, [id]);
 
-    // Wait for a key before hitting the API (avoids a spurious call with an
-    // empty key during the first client render when no prop is given).
-    const key = id ?? resolvedId;
+    return id ?? resolvedId;
+}
+
+function cardStyle(padding: string): React.CSSProperties {
+    return {
+        border: '1px solid var(--ifm-color-emphasis-200)',
+        borderRadius: 12,
+        padding,
+        background: 'var(--ifm-card-background-color)',
+    };
+}
+
+// The reaction box, meant for the top of a post: a one-click read on how people
+// feel about what they've just read, plus a pointer to the message form at the
+// end for anyone with more to say. Pair it with <BlogFeedback> on the same id.
+export function BlogReaction({ id }: { id?: string }): JSX.Element {
+    const key = useFeedbackId(id);
+
+    return (
+        <div
+            style={{
+                ...cardStyle('20px 24px'),
+                marginBottom: 32,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 10,
+            }}
+        >
+            {key && <Votes id={key} />}
+            <p
+                style={{
+                    margin: 0,
+                    fontSize: '0.85rem',
+                    color: 'var(--ifm-color-content-secondary)',
+                }}
+            >
+                Got more to say?{' '}
+                <a href={`#${MESSAGE_ANCHOR}`}>Leave a message at the end</a>.
+            </p>
+        </div>
+    );
+}
+
+// The closing section, meant for the end of a post: the same vote again for
+// anyone who waited until they'd read the argument, then the message form. Shares
+// its id with <BlogReaction>, so voting in either box locks both.
+export function BlogFeedback({ id }: { id?: string }): JSX.Element {
+    const key = useFeedbackId(id);
 
     return (
         <section
             style={{
+                ...cardStyle('28px'),
                 marginTop: 48,
-                border: '1px solid var(--ifm-color-emphasis-200)',
-                borderRadius: 12,
-                padding: '28px',
-                background: 'var(--ifm-card-background-color)',
                 display: 'flex',
                 flexDirection: 'column',
                 gap: 24,
@@ -555,7 +662,18 @@ export function BlogFeedback({ id }: { id?: string }): JSX.Element {
                     borderTop: '1px solid var(--ifm-color-emphasis-200)',
                 }}
             />
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {/* The anchor sits on the form, not the section, so the reaction
+                box's "leave a message" link lands on what it promises rather
+                than on the vote. scrollMarginTop clears the sticky navbar. */}
+            <div
+                id={MESSAGE_ANCHOR}
+                style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 4,
+                    scrollMarginTop: 90,
+                }}
+            >
                 <h3 style={{ margin: '0 0 4px' }}>Send us feedback</h3>
                 <p
                     style={{
@@ -563,7 +681,7 @@ export function BlogFeedback({ id }: { id?: string }): JSX.Element {
                         color: 'var(--ifm-color-content-secondary)',
                     }}
                 >
-                    Have a question, a use case, or a feature you want? Tell us.
+                    Tell us what you make of the change, or ask a question.
                 </p>
                 {key && <MessageBox id={key} />}
             </div>
