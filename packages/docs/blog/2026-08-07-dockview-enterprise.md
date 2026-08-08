@@ -16,6 +16,8 @@ If you are already using Dockview and you don't need the enterprise features, th
 
 <!-- truncate -->
 
+<BlogReaction id="v8-feedback" />
+
 ## Why enterprise?
 
 Dockview started as a pet project. I was looking for a good docking library, primarily for financial applications, and I couldn't find one. It has grown steadily since, and today Dockview is:
@@ -77,3 +79,5 @@ Either way, email me at [matt@dockview.dev](mailto:matt@dockview.dev) before you
 Thanks for reading, and thanks for using Dockview.
 
 Matt
+
+<BlogFeedback id="v8-feedback" />
