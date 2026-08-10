@@ -76,6 +76,8 @@ Either way, email me at [matt@dockview.dev](mailto:matt@dockview.dev) before you
 
 ---
 
+If you would like to keep up to date with Dockview consider [following us on LinkedIn](https://www.linkedin.com/company/dockviewjs).
+
 Thanks for reading, and thanks for using Dockview.
 
 Matt
