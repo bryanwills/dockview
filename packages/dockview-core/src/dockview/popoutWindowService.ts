@@ -223,8 +223,7 @@ export class PopoutWindowService implements IPopoutWindowService {
     }
 
     cancelPendingRestorations(): void {
-        // Snapshot: cleanup() deletes itself from _restorationCleanups, so
-        // iterate a copy. Do not remove the spread.
+        // Iterate a copy: cleanup() removes itself from _restorationCleanups as it goes.
         for (const cleanup of [...this._restorationCleanups]) {
             cleanup();
         }
@@ -266,8 +265,7 @@ export class PopoutWindowService implements IPopoutWindowService {
     }
 
     disposeAll(): void {
-        // Snapshot: dispose removes entries from _entries, so iterate a copy.
-        // Do not remove the spread.
+        // Iterate a copy: dispose removes entries from _entries as it goes.
         for (const entry of [...this._entries]) {
             entry.disposable.dispose();
         }

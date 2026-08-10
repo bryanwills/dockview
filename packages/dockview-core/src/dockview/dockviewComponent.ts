@@ -3193,9 +3193,8 @@ export class DockviewComponent
         // One transaction; the per-panel removals below nest via the depth
         // counter, so consumers see a single edge-group removal.
         this.mutation('remove', () => {
-            // Remove panels inside the group first.
-            // Snapshot: removePanel mutates group.panels (the live array), so
-            // iterate over a copy to avoid skipping entries. Do not remove the spread.
+            // Remove panels inside the group first. Iterate a copy: removePanel
+            // mutates group.panels (the live array) as it goes.
             for (const panel of [...group.panels]) {
                 this.removePanel(panel, {
                     removeEmptyGroup: false,
@@ -3949,8 +3948,8 @@ export class DockviewComponent
                             this._groups.has(orphan.id) &&
                             orphan.element.parentElement === null
                         ) {
-                            // Snapshot: removePanel mutates orphan.panels (the
-                            // live array), so iterate a copy. Do not remove the spread.
+                            // Iterate a copy: removePanel mutates orphan.panels
+                            // (the live array) as it goes.
                             for (const panel of [...orphan.panels]) {
                                 this.removePanel(panel, {
                                     removeEmptyGroup: false,

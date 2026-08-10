@@ -33,7 +33,7 @@ const ReactComponentBridge: React.ForwardRefRenderFunction<
     IPanelWrapperProps
 > = (props, ref) => {
     // Only the setter is needed (to force a re-render); the value is
-    // intentionally not destructured. Sonar S6754 false positive.
+    // intentionally not destructured.
     const [, triggerRender] = React.useState<number>(0);
     const _props = React.useRef<object>(props.componentProps);
 

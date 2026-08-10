@@ -2006,8 +2006,8 @@ export class DockviewGroupPanelModel
                 return;
             }
 
-            // ITabsContainer.indexOf(id) is a domain method (no `includes`
-            // counterpart), so S7765 (.includes over .indexOf) does not apply.
+            // ITabsContainer.indexOf(id) is a domain method with no `includes`
+            // counterpart.
             const fromSameGroup =
                 this.tabsContainer.indexOf(data.panelId) !== -1;
 
@@ -2055,9 +2055,7 @@ export class DockviewGroupPanelModel
         this.watermark?.dispose?.();
         this.watermark = undefined;
 
-        // Dispose all tab groups.
-        // Snapshot: dispose removes entries from _tabGroups, so iterate a copy.
-        // Do not remove the spread.
+        // Iterate a copy: dispose removes entries from _tabGroups as it goes.
         for (const tabGroup of [...this._tabGroups]) {
             tabGroup.dispose();
         }

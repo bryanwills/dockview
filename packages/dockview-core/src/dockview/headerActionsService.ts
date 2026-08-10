@@ -89,8 +89,7 @@ export class HeaderActionsService implements IHeaderActionsService {
     }
 
     dispose(): void {
-        // Snapshot: disposeGroup deletes the key from _perGroup, so iterate a
-        // copy of the keys. Do not remove the spread.
+        // Iterate a copy of the keys: disposeGroup deletes from _perGroup as it goes.
         for (const group of [...this._perGroup.keys()]) {
             this.disposeGroup(group);
         }
