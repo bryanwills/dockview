@@ -497,7 +497,6 @@ describe('events', () => {
             // flush any queued microtask
             await new Promise<void>((resolve) => queueMicrotask(resolve));
 
-            // the watcher entry for this emitter has been removed
             expect(Emitter.MEMORY_LEAK_WATCHER.size).toBe(0);
         });
 
