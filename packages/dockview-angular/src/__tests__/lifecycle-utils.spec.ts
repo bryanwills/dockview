@@ -125,10 +125,14 @@ describe('AngularLifecycleManager', () => {
 
     it('should emit destroy event when destroyed', (done) => {
         let emitCount = 0;
-        lifecycleManager.destroy$.subscribe(() => {
-            emitCount++;
-            expect(emitCount).toBe(1);
-            done();
+        lifecycleManager.destroy$.subscribe({
+            next: () => {
+                emitCount++;
+            },
+            complete: () => {
+                expect(emitCount).toBe(1);
+                done();
+            },
         });
 
         lifecycleManager.destroy();
