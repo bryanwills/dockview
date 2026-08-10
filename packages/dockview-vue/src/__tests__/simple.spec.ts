@@ -63,7 +63,10 @@ describe('Utility Functions', () => {
 
 describe('Package Structure', () => {
     test('package should build without errors', () => {
-        // If we get this far, the package structure is correct
-        expect(true).toBe(true);
+        // The package's view modules should all import cleanly
+        expect(splitviewView).toBeDefined();
+        expect(gridviewView).toBeDefined();
+        expect(paneviewView).toBeDefined();
+        expect(utils).toBeDefined();
     });
 });

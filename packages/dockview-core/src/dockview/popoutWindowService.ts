@@ -223,6 +223,7 @@ export class PopoutWindowService implements IPopoutWindowService {
     }
 
     cancelPendingRestorations(): void {
+        // Iterate a copy: cleanup() removes itself from _restorationCleanups as it goes.
         for (const cleanup of [...this._restorationCleanups]) {
             cleanup();
         }
@@ -264,6 +265,7 @@ export class PopoutWindowService implements IPopoutWindowService {
     }
 
     disposeAll(): void {
+        // Iterate a copy: dispose removes entries from _entries as it goes.
         for (const entry of [...this._entries]) {
             entry.disposable.dispose();
         }

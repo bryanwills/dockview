@@ -370,6 +370,8 @@ export class Gridview implements IDisposable {
         }
 
         const { size, orthogonalSize } = this.root;
+        // Flipping orientation transposes the axes, so the swapped argument
+        // order into flipNode is intentional.
         this.root = flipNode(this.root, orthogonalSize, size);
         this.root.layout(size, orthogonalSize);
     }
@@ -965,6 +967,8 @@ export class Gridview implements IDisposable {
                 newSiblingSize = Sizing.Invisible(newSiblingCachedVisibleSize);
             }
 
+            // BranchNode.removeChild(index) is a domain method, not the DOM
+            // Node.removeChild.
             const child = grandParent.removeChild(parentIndex);
             child.dispose();
 
