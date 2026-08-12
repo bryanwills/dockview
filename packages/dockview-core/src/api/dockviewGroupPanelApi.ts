@@ -258,23 +258,29 @@ export class DockviewGroupPanelApiImpl extends GridviewPanelApiImpl {
             throw new Error(NOT_INITIALIZED_MESSAGE);
         }
 
-        const group =
-            options.group ??
-            this.accessor.addGroup({
-                direction: positionToDirection(options.position ?? 'right'),
-                skipSetActive: options.skipSetActive ?? false,
-            });
+        // Programmatic relocation: tag it `'api'` so the `'move'` (and any
+        // fallback `'add'`) layout mutation reports the correct origin.
+        // User-gesture moves (DnD) drive `accessor.moveGroupOrPanel` directly
+        // and keep the default `'user'`.
+        this.accessor.withOrigin('api', () => {
+            const group =
+                options.group ??
+                this.accessor.addGroup({
+                    direction: positionToDirection(options.position ?? 'right'),
+                    skipSetActive: options.skipSetActive ?? false,
+                });
 
-        this.accessor.moveGroupOrPanel({
-            from: { groupId: this._group.id },
-            to: {
-                group,
-                position: options.group
-                    ? (options.position ?? 'center')
-                    : 'center',
-                index: options.index,
-            },
-            skipSetActive: options.skipSetActive,
+            this.accessor.moveGroupOrPanel({
+                from: { groupId: this._group!.id },
+                to: {
+                    group,
+                    position: options.group
+                        ? (options.position ?? 'center')
+                        : 'center',
+                    index: options.index,
+                },
+                skipSetActive: options.skipSetActive,
+            });
         });
     }
 

@@ -1163,7 +1163,9 @@ export class DockviewApi implements CommonApi<SerializedDockview> {
     }
 
     maximizeGroup(panel: IDockviewPanel): void {
-        this.component.maximizeGroup(panel.group);
+        this.component.withOrigin('api', () =>
+            this.component.maximizeGroup(panel.group)
+        );
     }
 
     hasMaximizedGroup(): boolean {
@@ -1171,7 +1173,9 @@ export class DockviewApi implements CommonApi<SerializedDockview> {
     }
 
     exitMaximizedGroup(): void {
-        this.component.exitMaximizedGroup();
+        this.component.withOrigin('api', () =>
+            this.component.exitMaximizedGroup()
+        );
     }
 
     get onDidMaximizedGroupChange(): Event<DockviewMaximizedGroupChangeEvent> {

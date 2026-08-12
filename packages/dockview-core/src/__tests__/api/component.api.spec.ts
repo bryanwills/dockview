@@ -593,6 +593,8 @@ describe('component.api', () => {
                 fromJSON: jest.fn(),
                 clear: jest.fn(),
                 addPopoutGroup,
+                maximizeGroup: jest.fn(),
+                exitMaximizedGroup: jest.fn(),
             });
             const cut = new DockviewApi(<DockviewComponent>component);
 
@@ -632,6 +634,12 @@ describe('component.api', () => {
             const popoutOptions = { position: {} } as any;
             void cut.addPopoutGroup(panel, popoutOptions);
             expect(addPopoutGroup).toHaveBeenCalledWith(panel, popoutOptions);
+
+            cut.maximizeGroup({ group } as any);
+            expect(component.maximizeGroup).toHaveBeenCalledWith(group);
+
+            cut.exitMaximizedGroup();
+            expect(component.exitMaximizedGroup).toHaveBeenCalledTimes(1);
 
             // Every mutating call went through withOrigin('api', ...)
             expect(component.withOrigin).toHaveBeenCalled();
