@@ -761,4 +761,86 @@ describe('overlayRenderContainer', () => {
 
         expect(() => cut.dispose()).not.toThrow();
     });
+
+    test('detatch(...) leaves no strong reference to the measured reference element (#1596)', async () => {
+        // The position cache measures the reference container's element during
+        // attach. A strong Map entry outlives detatch()/fromJSON and pins the
+        // detached panel/group DOM (and, through parent pointers, the whole
+        // previous layout tree) for the lifetime of the component. Walk every
+        // strongly-held property reachable from the container and assert the
+        // element is gone once the panel is detatched. (A WeakMap is invisible
+        // to this walk precisely because it cannot retain its keys.)
+        const reachableFrom = (root: unknown, needle: unknown): boolean => {
+            const seen = new Set<object>();
+            const queue: unknown[] = [root];
+            while (queue.length > 0) {
+                const value = queue.pop();
+                if (!value || typeof value !== 'object') {
+                    continue;
+                }
+                if (value === needle) {
+                    return true;
+                }
+                if (seen.has(value)) {
+                    continue;
+                }
+                seen.add(value);
+                if (value instanceof Map) {
+                    for (const [key, entry] of value) {
+                        queue.push(key, entry);
+                    }
+                } else if (value instanceof Set) {
+                    for (const entry of value) {
+                        queue.push(entry);
+                    }
+                }
+                for (const key of Object.getOwnPropertyNames(value)) {
+                    try {
+                        queue.push((value as Record<string, unknown>)[key]);
+                    } catch {
+                        // Accessor threw; irrelevant for retention.
+                    }
+                }
+            }
+            return false;
+        };
+
+        const cut = new OverlayRenderContainer(
+            parentContainer,
+            fromPartial<DockviewComponent>({})
+        );
+
+        const panelContentEl = document.createElement('div');
+        const onDidVisibilityChange = new Emitter<any>();
+        const onDidDimensionsChange = new Emitter<any>();
+        const onDidLocationChange = new Emitter<any>();
+
+        const panel = fromPartial<IDockviewPanel>({
+            api: {
+                id: 'test_panel_id',
+                onDidVisibilityChange: onDidVisibilityChange.event,
+                onDidDimensionsChange: onDidDimensionsChange.event,
+                onDidLocationChange: onDidLocationChange.event,
+                isVisible: true,
+                location: { type: 'grid' },
+            },
+            view: { content: { element: panelContentEl } },
+            group: { api: { location: { type: 'grid' } } },
+        });
+
+        cut.attach({ panel, referenceContainer });
+
+        // Let the scheduled positioning run so the reference element is measured
+        // (and therefore enters the position cache).
+        await exhaustMicrotaskQueue();
+        await exhaustAnimationFrame();
+
+        // Sanity-check the walker against an element the container legitimately
+        // holds for its lifetime.
+        expect(reachableFrom(cut, parentContainer)).toBe(true);
+
+        cut.detatch(panel);
+
+        expect(reachableFrom(cut, referenceContainer.element)).toBe(false);
+    });
 });

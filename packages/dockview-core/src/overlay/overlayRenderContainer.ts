@@ -11,7 +11,15 @@ import { IDockviewPanel } from '../dockview/dockviewPanel';
 import { DockviewComponent } from '../dockview/dockviewComponent';
 
 class PositionCache {
-    private readonly cache = new Map<
+    /**
+     * A WeakMap so an entry never extends the lifetime of its element: entries
+     * are only ever read back within the frame they were written (`frameId`
+     * guard below), so once an element is detached — `detatch()`, `fromJSON`,
+     * group disposal — its entry is garbage. A strong `Map` here retained the
+     * detached panel/group DOM (and, through parent pointers, the whole
+     * previous layout tree) for the lifetime of the component (#1596).
+     */
+    private readonly cache = new WeakMap<
         Element,
         {
             rect: { left: number; top: number; width: number; height: number };
