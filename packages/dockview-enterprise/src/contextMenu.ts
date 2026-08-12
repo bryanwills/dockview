@@ -487,11 +487,12 @@ export const ContextMenuModule = defineModule<
     IContextMenuHost
 >({
     name: 'ContextMenu',
-    options: [
-        'getTabContextMenuItems',
-        'getTabGroupChipContextMenuItems',
-        'createContextMenuItemComponent',
-    ],
+    // `createContextMenuItemComponent` is intentionally absent: it is the
+    // framework-render bridge, inert without a `component`-bearing item from the
+    // getters below, and the wrappers install it unconditionally. Listing it
+    // would demand a diagnostic rule that fires for consumers who asked for
+    // nothing (#1594). The getters carry the real intent.
+    options: ['getTabContextMenuItems', 'getTabGroupChipContextMenuItems'],
     serviceKey: 'contextMenuService',
     create: (host) => new ContextMenuController(host),
 });

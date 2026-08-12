@@ -148,12 +148,15 @@ export const OPTION_MODULE_RULES: OptionModuleRule[] = [
         moduleName: 'ContextMenu',
         when: (o) => o.getTabGroupChipContextMenuItems != null,
     },
-    {
-        optionKey: 'createContextMenuItemComponent',
-        reason: 'createContextMenuItemComponent',
-        moduleName: 'ContextMenu',
-        when: (o) => o.createContextMenuItemComponent != null,
-    },
+    // No rule for `createContextMenuItemComponent`: like `edgeGroupPeek` above,
+    // it is inert alone. The factory only ever runs to render a menu item whose
+    // config carries a `component`, and the app supplies those items through
+    // `getTabContextMenuItems` / `getTabGroupChipContextMenuItems` — so the two
+    // rules above already name ContextMenu whenever a real app needs it. On top
+    // of that the factory is a bridge the framework wrappers (React/Vue/Angular)
+    // install unconditionally, not something the app sets, so a rule here fired
+    // for every wrapper consumer who asked for nothing (#1594). It carries no
+    // intent the getter rules don't, so it gets no rule of its own.
     {
         optionKey: 'dndCompass',
         reason: 'dndCompass',
