@@ -258,10 +258,6 @@ export class DockviewGroupPanelApiImpl extends GridviewPanelApiImpl {
             throw new Error(NOT_INITIALIZED_MESSAGE);
         }
 
-        // Programmatic relocation: tag it `'api'` so the `'move'` (and any
-        // fallback `'add'`) layout mutation reports the correct origin.
-        // User-gesture moves (DnD) drive `accessor.moveGroupOrPanel` directly
-        // and keep the default `'user'`.
         this.accessor.withOrigin('api', () => {
             const group =
                 options.group ??
