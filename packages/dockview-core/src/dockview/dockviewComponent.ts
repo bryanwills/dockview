@@ -3485,37 +3485,54 @@ export class DockviewComponent
         }
 
         const existingPanels = new Map<string, IDockviewPanel>();
-
-        let tempGroup: DockviewGroupPanel | undefined;
+        const temporaryGroups = new Map<string, DockviewGroupPanel>();
+        const stagedPanels: Array<{
+            panel: IDockviewPanel;
+            temporaryGroup: DockviewGroupPanel;
+        }> = [];
 
         if (options?.reuseExistingPanels) {
             /**
-             * What are we doing here?
-             *
-             * 1. Create a temporary group to hold any panels that currently exist and that also exist in the new layout
-             * 2. Remove that temporary group from the group mapping so that it doesn't get cleared when we clear the layout
+             * Visible, always-rendered panels need individual staging groups
+             * to remain active. Other reused panels can share a staging group.
+             * The staging groups are excluded from the layout clear below.
              */
-
-            tempGroup = this.createGroup();
-            this._groups.delete(tempGroup.api.id);
-
             const newPanels = Object.keys(data.panels);
+            let sharedTemporaryGroup: DockviewGroupPanel | undefined;
+
+            const createTemporaryGroup = () => {
+                const temporaryGroup = this.createGroup();
+                this._groups.delete(temporaryGroup.api.id);
+                return temporaryGroup;
+            };
 
             for (const panel of this.panels) {
                 if (newPanels.includes(panel.api.id)) {
                     existingPanels.set(panel.api.id, panel);
+                    let temporaryGroup: DockviewGroupPanel;
+                    if (
+                        panel.api.renderer === 'always' &&
+                        panel.api.isVisible
+                    ) {
+                        temporaryGroup = createTemporaryGroup();
+                    } else {
+                        sharedTemporaryGroup ??= createTemporaryGroup();
+                        temporaryGroup = sharedTemporaryGroup;
+                    }
+                    temporaryGroups.set(panel.api.id, temporaryGroup);
+                    stagedPanels.push({ panel, temporaryGroup });
                 }
             }
 
             this.movingLock(() => {
-                Array.from(existingPanels.values()).forEach((panel) => {
+                stagedPanels.forEach(({ panel, temporaryGroup }) => {
                     this.moveGroupOrPanel({
                         from: {
                             groupId: panel.api.group.api.id,
                             panelId: panel.api.id,
                         },
                         to: {
-                            group: tempGroup!,
+                            group: temporaryGroup,
                             position: 'center',
                         },
                         keepEmptyGroups: true,
@@ -3579,10 +3596,11 @@ export class DockviewComponent
                      */
 
                     const existingPanel = existingPanels.get(child);
+                    const temporaryGroup = temporaryGroups.get(child);
 
-                    if (tempGroup && existingPanel) {
+                    if (temporaryGroup && existingPanel) {
                         this.movingLock(() => {
-                            tempGroup!.model.removePanel(existingPanel);
+                            temporaryGroup.model.removePanel(existingPanel);
                         });
 
                         createdPanels.push(existingPanel);

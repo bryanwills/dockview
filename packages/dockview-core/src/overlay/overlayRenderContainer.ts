@@ -86,6 +86,8 @@ export class OverlayRenderContainer extends CompositeDisposable {
              *  the peek's reveal window. Preserved across internal resizes. */
             forceVisible?: boolean;
             clip?: DOMRect;
+            /** Keep a positioned overlay stable while a replacement reference awaits layout. */
+            retainPreviousGeometry: boolean;
         }
     > = {};
 
@@ -181,7 +183,10 @@ export class OverlayRenderContainer extends CompositeDisposable {
                 destroy: Disposable.NONE,
 
                 element,
+                retainPreviousGeometry: false,
             };
+        } else {
+            this.map[panel.api.id].retainPreviousGeometry = true;
         }
 
         const focusContainer = this.map[panel.api.id].element;
@@ -235,6 +240,19 @@ export class OverlayRenderContainer extends CompositeDisposable {
                 const top = box.top - box2.top;
                 const width = box.width;
                 const height = box.height;
+
+                if (
+                    entry.retainPreviousGeometry &&
+                    (width === 0 || height === 0)
+                ) {
+                    if (!panel.api.isVisible && !forceVisible) {
+                        focusContainer.style.visibility = 'hidden';
+                        focusContainer.style.pointerEvents = 'none';
+                    }
+                    return;
+                }
+
+                entry.retainPreviousGeometry = false;
 
                 focusContainer.style.left = `${left}px`;
                 focusContainer.style.top = `${top}px`;

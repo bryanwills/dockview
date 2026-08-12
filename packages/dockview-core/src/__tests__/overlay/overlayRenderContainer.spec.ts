@@ -478,6 +478,97 @@ describe('overlayRenderContainer', () => {
         expect(container2.style.visibility).toBe('');
     });
 
+    test('re-attached overlay keeps its last geometry until the new container is laid out', async () => {
+        const cut = new OverlayRenderContainer(
+            parentContainer,
+            fromPartial<DockviewComponent>({})
+        );
+
+        const panelContentEl = document.createElement('div');
+        const onDidVisibilityChange = new Emitter<any>();
+        const onDidDimensionsChange = new Emitter<any>();
+        const onDidLocationChange = new Emitter<any>();
+
+        const panel = fromPartial<IDockviewPanel>({
+            api: {
+                id: 'test_panel_id',
+                onDidVisibilityChange: onDidVisibilityChange.event,
+                onDidDimensionsChange: onDidDimensionsChange.event,
+                onDidLocationChange: onDidLocationChange.event,
+                isVisible: true,
+                location: { type: 'grid' },
+            },
+            view: { content: { element: panelContentEl } },
+            group: { api: { location: { type: 'grid' } } },
+        });
+
+        jest.spyOn(
+            referenceContainer.element,
+            'getBoundingClientRect'
+        ).mockReturnValue(
+            fromPartial<DOMRect>({
+                left: 100,
+                top: 200,
+                width: 300,
+                height: 400,
+            })
+        );
+        jest.spyOn(parentContainer, 'getBoundingClientRect').mockReturnValue(
+            fromPartial<DOMRect>({ left: 0, top: 0, width: 1000, height: 1000 })
+        );
+
+        const overlay = cut.attach({ panel, referenceContainer });
+        await exhaustMicrotaskQueue();
+        await exhaustAnimationFrame();
+
+        expect(overlay.style.left).toBe('100px');
+        expect(overlay.style.top).toBe('200px');
+        expect(overlay.style.width).toBe('300px');
+        expect(overlay.style.height).toBe('400px');
+
+        const replacementContainer: IRenderable = {
+            element: document.createElement('div'),
+            dropTarget: fromPartial<Droptarget>({}),
+        };
+        const replacementRect = jest
+            .spyOn(replacementContainer.element, 'getBoundingClientRect')
+            .mockReturnValue(
+                fromPartial<DOMRect>({
+                    left: 0,
+                    top: 0,
+                    width: 0,
+                    height: 0,
+                })
+            );
+
+        expect(
+            cut.attach({ panel, referenceContainer: replacementContainer })
+        ).toBe(overlay);
+        await exhaustMicrotaskQueue();
+        await exhaustAnimationFrame();
+
+        expect(overlay.style.left).toBe('100px');
+        expect(overlay.style.top).toBe('200px');
+        expect(overlay.style.width).toBe('300px');
+        expect(overlay.style.height).toBe('400px');
+
+        replacementRect.mockReturnValue(
+            fromPartial<DOMRect>({
+                left: 150,
+                top: 250,
+                width: 350,
+                height: 450,
+            })
+        );
+        cut.updateAllPositions();
+        await exhaustAnimationFrame();
+
+        expect(overlay.style.left).toBe('150px');
+        expect(overlay.style.top).toBe('250px');
+        expect(overlay.style.width).toBe('350px');
+        expect(overlay.style.height).toBe('450px');
+    });
+
     test('resize rAF that fires after a panel was hidden mid-flight keeps visibility hidden', async () => {
         // Regression test for a race where:
         //   1. visibilityChanged(visible=true) schedules a resize rAF and clears pointerEvents

@@ -2066,6 +2066,43 @@ describe('dockviewComponent', () => {
             dockview.dispose();
         });
 
+        test('reuseExistingPanels keeps always-rendered panels active while rebuilding', () => {
+            dockview.layout(1000, 1000);
+
+            const panel1 = dockview.addPanel({
+                id: 'panel1',
+                component: 'default',
+                renderer: 'always',
+            });
+            const panel2 = dockview.addPanel({
+                id: 'panel2',
+                component: 'default',
+                renderer: 'always',
+                position: {
+                    referencePanel: panel1,
+                    direction: 'right',
+                },
+            });
+            const activePanelIdsDuringClear: string[][] = [];
+            const originalClear = dockview.clear.bind(dockview);
+            jest.spyOn(dockview, 'clear').mockImplementationOnce(() => {
+                activePanelIdsDuringClear.push(
+                    [panel1, panel2]
+                        .filter((panel) => panel.group.activePanel === panel)
+                        .map((panel) => panel.id)
+                );
+                originalClear();
+            });
+
+            dockview.fromJSON(dockview.toJSON(), {
+                reuseExistingPanels: true,
+            });
+
+            expect(activePanelIdsDuringClear).toEqual([['panel1', 'panel2']]);
+            expect(dockview.getGroupPanel(panel1.id)).toBe(panel1);
+            expect(dockview.getGroupPanel(panel2.id)).toBe(panel2);
+        });
+
         test('reuseExistingPanels true', () => {
             const parts: PanelContentPartTest[] = [];
 
