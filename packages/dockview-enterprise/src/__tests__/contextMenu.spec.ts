@@ -2124,10 +2124,8 @@ describe('ContextMenuController', () => {
             expect(Object.keys(ContextMenuModule.services ?? {})).toContain(
                 'contextMenuService'
             );
-            // Only the getters are listed. `createContextMenuItemComponent` is
-            // deliberately excluded (see the module's `options` comment and
-            // optionsModules.ts / #1594): it is an inert framework bridge, so it
-            // must not drive a missing-module diagnostic of its own.
+            // `createContextMenuItemComponent` is excluded (inert framework
+            // bridge); see the module's `options` comment.
             expect(ContextMenuModule.options).toEqual([
                 'getTabContextMenuItems',
                 'getTabGroupChipContextMenuItems',

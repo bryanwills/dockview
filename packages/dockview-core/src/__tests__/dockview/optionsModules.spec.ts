@@ -116,8 +116,7 @@ describe('validateOptionModules', () => {
     });
 
     test('createContextMenuItemComponent alone does not demand enterprise', () => {
-        // The framework wrappers install this bridge unconditionally; on its own
-        // it is inert and must not prompt for enterprise (#1594).
+        // #1594: the wrappers set this bridge unconditionally; inert on its own.
         validateOptionModules(
             options({ createContextMenuItemComponent: () => undefined }),
             nothingRegistered
@@ -126,8 +125,7 @@ describe('validateOptionModules', () => {
     });
 
     test('getTabContextMenuItems still reports ContextMenu', () => {
-        // Real context-menu intent is expressed through the getters, so the
-        // ContextMenu diagnostic still fires for an app that asks for menus.
+        // The getters carry the real intent, so they still report ContextMenu.
         validateOptionModules(
             options({ getTabContextMenuItems: () => [] }),
             nothingRegistered

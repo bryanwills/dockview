@@ -9,11 +9,9 @@ const MockPanel = defineComponent({
     template: '<div class="mock-panel">Panel</div>',
 });
 
-// Guards #1594 for the Vue wrapper: a bare mount without dockview-enterprise must
-// not log a missing-module error. The wrapper installs framework bridges such as
-// `createContextMenuItemComponent` unconditionally, and none may be read as
-// declared intent for an enterprise module. Kept in its own file so the
-// process-global missing-module dedup cache is empty for this first mount.
+// #1594: a bare mount without dockview-enterprise must not log a missing-module
+// error. Own file so the process-global missing-module dedup cache is empty and
+// this is the first mount that could surface the message.
 describe('DockviewVue bare mount', () => {
     afterEach(() => {
         vi.restoreAllMocks();

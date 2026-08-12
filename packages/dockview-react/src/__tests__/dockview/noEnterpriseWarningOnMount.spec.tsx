@@ -3,12 +3,9 @@ import { render, waitFor } from '@testing-library/react';
 import { DockviewApi, DockviewReadyEvent, IDockviewPanelProps } from 'dockview';
 import { DockviewReact } from '../../dockview/dockview';
 
-// Guards #1594: a bare DockviewReact (no dockview-enterprise) must mount without
-// logging a missing-module error. The wrapper installs framework bridges such as
-// `createContextMenuItemComponent` unconditionally, and none of them may be read
-// as declared intent for an enterprise module. Kept in its own file so the
-// once-per-process missing-module dedup cache starts empty and this mount is the
-// first that could surface the message.
+// #1594: a bare mount without dockview-enterprise must not log a missing-module
+// error. Own file so the process-global missing-module dedup cache is empty and
+// this is the first mount that could surface the message.
 describe('DockviewReact bare mount', () => {
     test('does not warn about a missing dockview-enterprise module (#1594)', async () => {
         const errorSpy = jest
