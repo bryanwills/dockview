@@ -2124,13 +2124,12 @@ describe('ContextMenuController', () => {
             expect(Object.keys(ContextMenuModule.services ?? {})).toContain(
                 'contextMenuService'
             );
-            expect(ContextMenuModule.options).toEqual(
-                expect.arrayContaining([
-                    'getTabContextMenuItems',
-                    'getTabGroupChipContextMenuItems',
-                    'createContextMenuItemComponent',
-                ])
-            );
+            // `createContextMenuItemComponent` is excluded (inert framework
+            // bridge); see the module's `options` comment.
+            expect(ContextMenuModule.options).toEqual([
+                'getTabContextMenuItems',
+                'getTabGroupChipContextMenuItems',
+            ]);
         });
     });
 });

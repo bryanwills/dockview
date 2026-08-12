@@ -148,12 +148,11 @@ export const OPTION_MODULE_RULES: OptionModuleRule[] = [
         moduleName: 'ContextMenu',
         when: (o) => o.getTabGroupChipContextMenuItems != null,
     },
-    {
-        optionKey: 'createContextMenuItemComponent',
-        reason: 'createContextMenuItemComponent',
-        moduleName: 'ContextMenu',
-        when: (o) => o.createContextMenuItemComponent != null,
-    },
+    // No rule for `createContextMenuItemComponent`: like `edgeGroupPeek` above,
+    // it is inert alone. It only renders a menu item whose config carries a
+    // `component`, supplied via the getters above, whose rules already name
+    // ContextMenu. The framework wrappers also set it unconditionally, so a rule
+    // here would warn consumers that never asked for a menu.
     {
         optionKey: 'dndCompass',
         reason: 'dndCompass',

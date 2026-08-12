@@ -115,6 +115,24 @@ describe('validateOptionModules', () => {
         expect(consoleError).not.toHaveBeenCalled();
     });
 
+    test('createContextMenuItemComponent alone does not demand enterprise', () => {
+        // #1594: the wrappers set this bridge unconditionally; inert on its own.
+        validateOptionModules(
+            options({ createContextMenuItemComponent: () => undefined }),
+            nothingRegistered
+        );
+        expect(consoleError).not.toHaveBeenCalled();
+    });
+
+    test('getTabContextMenuItems still reports ContextMenu', () => {
+        // The getters carry the real intent, so they still report ContextMenu.
+        validateOptionModules(
+            options({ getTabContextMenuItems: () => [] }),
+            nothingRegistered
+        );
+        expect(consoleError.mock.calls[0][0]).toMatch(/ContextMenu/);
+    });
+
     test('an explicitly disabled feature is silent', () => {
         validateOptionModules(
             options({
