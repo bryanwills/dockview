@@ -321,6 +321,11 @@ describe('layout mutation events', () => {
             expect(origins).toEqual(['api']);
         });
 
+        test('a programmatic api.addGroup() is tagged "api"', () => {
+            dockview.api.addGroup();
+            expect(origins).toEqual(['api']);
+        });
+
         test('a programmatic tab-group mutation is tagged "api"', () => {
             const p1 = dockview.addPanel({ id: 'p1', component: 'default' });
             origins.length = 0;

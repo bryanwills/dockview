@@ -985,7 +985,9 @@ export class DockviewApi implements CommonApi<SerializedDockview> {
      * Add a group and return the created object.
      */
     addGroup(options?: AddGroupOptions): DockviewGroupPanel {
-        return this.component.addGroup(options);
+        return this.component.withOrigin('api', () =>
+            this.component.addGroup(options)
+        );
     }
 
     /**
