@@ -581,9 +581,11 @@ describe('component.api', () => {
             const panel = { id: 'p' } as any;
             const group = { id: 'g' } as any;
             const addPanel = jest.fn().mockReturnValue(panel);
+            const addGroup = jest.fn().mockReturnValue(group);
             const addPopoutGroup = jest.fn().mockResolvedValue(true);
             const component = createComponent({
                 addPanel,
+                addGroup,
                 removePanel: jest.fn(),
                 closeAllGroups: jest.fn(),
                 removeGroup: jest.fn(),
@@ -591,12 +593,18 @@ describe('component.api', () => {
                 fromJSON: jest.fn(),
                 clear: jest.fn(),
                 addPopoutGroup,
+                maximizeGroup: jest.fn(),
+                exitMaximizedGroup: jest.fn(),
             });
             const cut = new DockviewApi(<DockviewComponent>component);
 
             const addOptions = { id: 'p', component: 'c' } as any;
             expect(cut.addPanel(addOptions)).toBe(panel);
             expect(addPanel).toHaveBeenCalledWith(addOptions);
+
+            const addGroupOptions = { id: 'g' } as any;
+            expect(cut.addGroup(addGroupOptions)).toBe(group);
+            expect(addGroup).toHaveBeenCalledWith(addGroupOptions);
 
             cut.removePanel(panel);
             expect(component.removePanel).toHaveBeenCalledWith(panel);
@@ -627,6 +635,12 @@ describe('component.api', () => {
             void cut.addPopoutGroup(panel, popoutOptions);
             expect(addPopoutGroup).toHaveBeenCalledWith(panel, popoutOptions);
 
+            cut.maximizeGroup({ group } as any);
+            expect(component.maximizeGroup).toHaveBeenCalledWith(group);
+
+            cut.exitMaximizedGroup();
+            expect(component.exitMaximizedGroup).toHaveBeenCalledTimes(1);
+
             // Every mutating call went through withOrigin('api', ...)
             expect(component.withOrigin).toHaveBeenCalled();
             for (const call of (component.withOrigin as jest.Mock).mock.calls) {
@@ -634,7 +648,7 @@ describe('component.api', () => {
             }
         });
 
-        test('addGroup delegates directly (no origin wrapping)', () => {
+        test('addGroup runs inside withOrigin("api")', () => {
             const group = { id: 'g' } as any;
             const addGroup = jest.fn().mockReturnValue(group);
             const component = createComponent({ addGroup });
@@ -643,6 +657,10 @@ describe('component.api', () => {
             const options = { id: 'g' } as any;
             expect(cut.addGroup(options)).toBe(group);
             expect(addGroup).toHaveBeenCalledWith(options);
+            expect(component.withOrigin).toHaveBeenCalledWith(
+                'api',
+                expect.any(Function)
+            );
         });
 
         test('toJSON delegates to the component', () => {

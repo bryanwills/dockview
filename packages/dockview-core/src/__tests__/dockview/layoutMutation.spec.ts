@@ -321,6 +321,71 @@ describe('layout mutation events', () => {
             expect(origins).toEqual(['api']);
         });
 
+        test('a programmatic api.addGroup() is tagged "api"', () => {
+            dockview.api.addGroup();
+            expect(origins).toEqual(['api']);
+        });
+
+        test('a programmatic api.maximizeGroup() / exitMaximizedGroup() is tagged "api"', () => {
+            const p1 = dockview.addPanel({ id: 'p1', component: 'default' });
+            dockview.addPanel({
+                id: 'p2',
+                component: 'default',
+                position: { direction: 'right' },
+            });
+            origins.length = 0;
+
+            dockview.api.maximizeGroup(p1);
+            dockview.api.exitMaximizedGroup();
+            expect(origins).toEqual(['api', 'api']);
+        });
+
+        test('a programmatic panel.api.moveTo() is tagged "api"', () => {
+            const p1 = dockview.addPanel({ id: 'p1', component: 'default' });
+            const p2 = dockview.addPanel({
+                id: 'p2',
+                component: 'default',
+                position: { direction: 'right' },
+            });
+            origins.length = 0;
+
+            p1.api.moveTo({ group: p2.group, position: 'center' });
+            expect(origins).toEqual(['api']);
+        });
+
+        test('a programmatic group.api.moveTo() into an explicit group is tagged "api"', () => {
+            const p1 = dockview.addPanel({ id: 'p1', component: 'default' });
+            const p2 = dockview.addPanel({
+                id: 'p2',
+                component: 'default',
+                position: { direction: 'right' },
+            });
+            origins.length = 0;
+
+            p1.group.api.moveTo({ group: p2.group, position: 'center' });
+            // Every mutation bracketed by the move (incl. teardown of the
+            // now-empty source group) must report the api origin.
+            expect(origins.every((o) => o === 'api')).toBe(true);
+            expect(origins.length).toBeGreaterThan(0);
+        });
+
+        test('a programmatic group.api.moveTo() that creates the target group is tagged "api"', () => {
+            const p1 = dockview.addPanel({ id: 'p1', component: 'default' });
+            dockview.addPanel({
+                id: 'p2',
+                component: 'default',
+                position: { direction: 'right' },
+            });
+            origins.length = 0;
+
+            // No target group: exercises the `addGroup` fallback inside
+            // `group.api.moveTo`, so the created group's `add` mutation must
+            // also carry the api origin.
+            p1.group.api.moveTo({ position: 'left' });
+            expect(origins.every((o) => o === 'api')).toBe(true);
+            expect(origins.length).toBeGreaterThan(0);
+        });
+
         test('a programmatic tab-group mutation is tagged "api"', () => {
             const p1 = dockview.addPanel({ id: 'p1', component: 'default' });
             origins.length = 0;

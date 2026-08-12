@@ -195,17 +195,22 @@ export class DockviewPanelApiImpl
     }
 
     moveTo(options: DockviewPanelMoveParams): void {
-        this.accessor.moveGroupOrPanel({
-            from: { groupId: this._group.id, panelId: this.panel.id },
-            to: {
-                group: options.group ?? this._group,
-                position: options.group
-                    ? (options.position ?? 'center')
-                    : 'center',
-                index: options.index,
-            },
-            skipSetActive: options.skipSetActive,
-        });
+        // Programmatic relocation: tag it `'api'` so the `'move'` layout
+        // mutation reports the correct origin. User-gesture moves (DnD) drive
+        // `accessor.moveGroupOrPanel` directly and keep the default `'user'`.
+        this.accessor.withOrigin('api', () =>
+            this.accessor.moveGroupOrPanel({
+                from: { groupId: this._group.id, panelId: this.panel.id },
+                to: {
+                    group: options.group ?? this._group,
+                    position: options.group
+                        ? (options.position ?? 'center')
+                        : 'center',
+                    index: options.index,
+                },
+                skipSetActive: options.skipSetActive,
+            })
+        );
     }
 
     setTitle(title: string): void {

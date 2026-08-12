@@ -430,6 +430,7 @@ describe('DockviewGroupPanelApiImpl', () => {
             const accessor = fromPartial<DockviewComponent>({
                 addGroup: jest.fn(),
                 moveGroupOrPanel: jest.fn(),
+                withOrigin: jest.fn((_origin: any, fn: () => any) => fn()),
             });
             const cut = new DockviewGroupPanelApiImpl(
                 'test-id',
@@ -463,6 +464,7 @@ describe('DockviewGroupPanelApiImpl', () => {
             const accessor = fromPartial<DockviewComponent>({
                 addGroup: jest.fn(),
                 moveGroupOrPanel: jest.fn(),
+                withOrigin: jest.fn((_origin: any, fn: () => any) => fn()),
             });
             const cut = new DockviewGroupPanelApiImpl(
                 'test-id',
@@ -490,6 +492,7 @@ describe('DockviewGroupPanelApiImpl', () => {
             const accessor = fromPartial<DockviewComponent>({
                 addGroup: jest.fn().mockReturnValue(createdGroup),
                 moveGroupOrPanel: jest.fn(),
+                withOrigin: jest.fn((_origin: any, fn: () => any) => fn()),
             });
             const cut = new DockviewGroupPanelApiImpl(
                 'test-id',
@@ -522,6 +525,7 @@ describe('DockviewGroupPanelApiImpl', () => {
             const accessor = fromPartial<DockviewComponent>({
                 addGroup: jest.fn().mockReturnValue(createdGroup),
                 moveGroupOrPanel: jest.fn(),
+                withOrigin: jest.fn((_origin: any, fn: () => any) => fn()),
             });
             const cut = new DockviewGroupPanelApiImpl(
                 'test-id',

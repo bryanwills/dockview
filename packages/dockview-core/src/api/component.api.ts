@@ -985,7 +985,9 @@ export class DockviewApi implements CommonApi<SerializedDockview> {
      * Add a group and return the created object.
      */
     addGroup(options?: AddGroupOptions): DockviewGroupPanel {
-        return this.component.addGroup(options);
+        return this.component.withOrigin('api', () =>
+            this.component.addGroup(options)
+        );
     }
 
     /**
@@ -1161,7 +1163,9 @@ export class DockviewApi implements CommonApi<SerializedDockview> {
     }
 
     maximizeGroup(panel: IDockviewPanel): void {
-        this.component.maximizeGroup(panel.group);
+        this.component.withOrigin('api', () =>
+            this.component.maximizeGroup(panel.group)
+        );
     }
 
     hasMaximizedGroup(): boolean {
@@ -1169,7 +1173,9 @@ export class DockviewApi implements CommonApi<SerializedDockview> {
     }
 
     exitMaximizedGroup(): void {
-        this.component.exitMaximizedGroup();
+        this.component.withOrigin('api', () =>
+            this.component.exitMaximizedGroup()
+        );
     }
 
     get onDidMaximizedGroupChange(): Event<DockviewMaximizedGroupChangeEvent> {
