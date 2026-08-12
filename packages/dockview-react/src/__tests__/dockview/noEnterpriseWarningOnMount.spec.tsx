@@ -1,10 +1,6 @@
 import React from 'react';
 import { render, waitFor } from '@testing-library/react';
-import {
-    DockviewApi,
-    DockviewReadyEvent,
-    IDockviewPanelProps,
-} from 'dockview';
+import { DockviewApi, DockviewReadyEvent, IDockviewPanelProps } from 'dockview';
 import { DockviewReact } from '../../dockview/dockview';
 
 // Guards #1594: a bare DockviewReact (no dockview-enterprise) must mount without
