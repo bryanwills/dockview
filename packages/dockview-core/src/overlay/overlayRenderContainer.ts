@@ -325,6 +325,10 @@ export class OverlayRenderContainer extends CompositeDisposable {
             if (panel.api.isVisible) {
                 this.positionCache.invalidate();
                 resize();
+                // Existing geometry is safe to show while its replacement lays out.
+                if (this.map[panel.api.id]?.retainPreviousGeometry) {
+                    focusContainer.style.visibility = '';
+                }
                 focusContainer.style.pointerEvents = '';
             } else {
                 focusContainer.style.visibility = 'hidden';

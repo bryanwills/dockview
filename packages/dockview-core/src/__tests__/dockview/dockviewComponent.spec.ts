@@ -2103,6 +2103,50 @@ describe('dockviewComponent', () => {
             expect(dockview.getGroupPanel(panel2.id)).toBe(panel2);
         });
 
+        test('reuseExistingPanels keeps always-rendered overlays visible while rebuilding', async () => {
+            dockview.layout(1000, 1000);
+
+            const panel1 = dockview.addPanel({
+                id: 'panel1',
+                component: 'default',
+                renderer: 'always',
+            });
+            const panel2 = dockview.addPanel({
+                id: 'panel2',
+                component: 'default',
+                renderer: 'always',
+                position: {
+                    referencePanel: panel1,
+                    direction: 'right',
+                },
+            });
+            await exhaustMicrotaskQueue();
+            await exhaustAnimationFrame();
+
+            const overlays = [panel1, panel2].map(
+                (panel) =>
+                    panel.view.content.element.closest(
+                        '.dv-render-overlay'
+                    ) as HTMLElement
+            );
+            const visibilityAtNextFrame: string[][] = [];
+            requestAnimationFrame(() => {
+                visibilityAtNextFrame.push(
+                    overlays.map((overlay) => overlay.style.visibility)
+                );
+            });
+
+            dockview.fromJSON(dockview.toJSON(), {
+                reuseExistingPanels: true,
+            });
+
+            expect(overlays.map((overlay) => overlay.style.visibility)).toEqual(
+                ['', '']
+            );
+            await exhaustAnimationFrame();
+            expect(visibilityAtNextFrame).toEqual([['', '']]);
+        });
+
         test('reuseExistingPanels true', () => {
             const parts: PanelContentPartTest[] = [];
 

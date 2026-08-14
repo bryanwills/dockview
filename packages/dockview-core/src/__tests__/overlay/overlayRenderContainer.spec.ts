@@ -203,6 +203,7 @@ describe('overlayRenderContainer', () => {
 
         (panel as Writable<IDockviewPanel>).api.isVisible = true;
         onDidVisibilityChange.fire({});
+        expect(container.style.visibility).toBe('hidden');
         expect(container.style.pointerEvents).toBe('');
         await exhaustAnimationFrame();
         expect(container.style.visibility).toBe('');
