@@ -1305,14 +1305,15 @@ export class DockviewGroupPanelModel
         // onlyWhenVisible renderer that loop leaves the active panel's content
         // detached. Re-show it so swapping the render container on an
         // already-populated group (e.g. restoring a popout group from JSON)
-        // keeps the active content mounted.  Also call layout() so the panel
-        // content is properly sized after the container switch — without it
-        // the panel's content element can end up with stale dimensions when
-        // moved back from a popout window (fixes #989).
+        // keeps the active content mounted.
         if (this._activePanel) {
             this.contentContainer.renderPanel(this._activePanel, {
                 asActive: true,
             });
+            // Also re-run layout() so the panel content is sized after the
+            // container switch — matching doSetActivePanel(). Without it the
+            // content element keeps stale dimensions when a group is moved back
+            // from a popout window and renders blank (fixes #989).
             const { width, height } = this.contentDimensions();
             this._activePanel.layout(width, height);
         }
