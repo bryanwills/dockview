@@ -2066,6 +2066,66 @@ describe('dockviewComponent', () => {
             dockview.dispose();
         });
 
+        test('reuseExistingPanels disposes the staging groups it creates', () => {
+            // The staging groups are removed from `_groups` so the layout clear
+            // skips them, which also means nothing else will ever tear them
+            // down. Left undisposed each one leaks a ResizeObserver, an
+            // `onDidOptionsChange` subscription held by this component's
+            // emitter and a watermark — once per reused always-rendered panel.
+            dockview.layout(1000, 1000);
+
+            const panel1 = dockview.addPanel({
+                id: 'panel1',
+                component: 'default',
+                renderer: 'always',
+            });
+            dockview.addPanel({
+                id: 'panel2',
+                component: 'default',
+                renderer: 'always',
+                position: {
+                    referencePanel: panel1,
+                    direction: 'right',
+                },
+            });
+
+            const created: DockviewGroupPanel[] = [];
+            const originalCreateGroup = dockview.createGroup.bind(dockview);
+            const createGroupSpy = jest
+                .spyOn(dockview, 'createGroup')
+                .mockImplementation((options) => {
+                    const group = originalCreateGroup(options);
+                    created.push(group);
+                    return group;
+                });
+
+            const disposed = new Set<string>();
+            const originalDispose = DockviewGroupPanel.prototype.dispose;
+            const disposeSpy = jest
+                .spyOn(DockviewGroupPanel.prototype, 'dispose')
+                .mockImplementation(function (this: DockviewGroupPanel) {
+                    disposed.add(this.api.id);
+                    return originalDispose.call(this);
+                });
+
+            dockview.fromJSON(dockview.toJSON(), {
+                reuseExistingPanels: true,
+            });
+
+            createGroupSpy.mockRestore();
+            disposeSpy.mockRestore();
+
+            // Two visible `always` panels => two individual staging groups.
+            const stagingGroups = created.filter(
+                (group) => !dockview.groups.includes(group)
+            );
+            expect(stagingGroups.length).toBeGreaterThanOrEqual(2);
+
+            for (const group of stagingGroups) {
+                expect(disposed.has(group.api.id)).toBe(true);
+            }
+        });
+
         test('reuseExistingPanels keeps always-rendered panels active while rebuilding', () => {
             dockview.layout(1000, 1000);
 

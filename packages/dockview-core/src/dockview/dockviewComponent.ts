@@ -3490,6 +3490,7 @@ export class DockviewComponent
             panel: IDockviewPanel;
             temporaryGroup: DockviewGroupPanel;
         }> = [];
+        const temporaryGroupDisposables: IDisposable[] = [];
 
         if (options?.reuseExistingPanels) {
             /**
@@ -3502,7 +3503,23 @@ export class DockviewComponent
 
             const createTemporaryGroup = () => {
                 const temporaryGroup = this.createGroup();
+                /**
+                 * Removing the group from `_groups` also drops the record's
+                 * `CompositeDisposable`, so capture it first and tear both it
+                 * and the group down in the `finally` below. Left undisposed a
+                 * staging group leaks its `ResizeObserver`, its
+                 * `onDidOptionsChange` subscription (retained by this
+                 * component's emitter) and the watermark its model mounts when
+                 * the group empties — once per reused panel, per `fromJSON`.
+                 */
+                const record = this._groups.get(temporaryGroup.api.id);
                 this._groups.delete(temporaryGroup.api.id);
+                temporaryGroupDisposables.push(
+                    Disposable.from(() => {
+                        record?.disposable.dispose();
+                        temporaryGroup.dispose();
+                    })
+                );
                 return temporaryGroup;
             };
 
@@ -3733,6 +3750,15 @@ export class DockviewComponent
              * expect trying to load a corrupted layout to result in an error and not silently fail...
              */
             throw err;
+        } finally {
+            /**
+             * The staging groups are detached from `_groups` and never enter
+             * the grid, so nothing else will ever tear them down. Dispose on
+             * both the success and the error path.
+             */
+            for (const disposable of temporaryGroupDisposables) {
+                disposable.dispose();
+            }
         }
 
         // Force position updates for always visible panels after DOM layout is complete
