@@ -49,7 +49,9 @@ api.onDidMovePanel((event: MovePanelEvent) => {
 :::
 
 :::info
-`onDidMovePanel` covers every way a panel changes group, including being dragged out into a new floating group or popout window. It fires once the move has settled, so `event.panel.api.location` already reports the destination. When a group is relocated as a whole its panels keep their group, so `event.to` equals `event.from`.
+`onDidMovePanel` covers every way a panel is relocated, including being dragged out into a new floating group or popout window. It fires once the move has settled, so `event.panel.api.location` already reports the destination.
+
+Relocating a whole group fires the event once per panel in that group. `event.to` equals `event.from` when the group survives the move, such as a group dragged to a new grid slot or floated. Popping a group out rebuilds it in the new window, so there `event.to` is the new group.
 :::
 
 ## Group lifecycle

@@ -257,6 +257,12 @@ export interface MovePanelEvent {
     to: DockviewGroupPanel;
 }
 
+/**
+ * A pending {@link MovePanelEvent}, collected while a relocation is in flight
+ * and fired once it has settled.
+ */
+type MovedPanel = { panel: IDockviewPanel; from: DockviewGroupPanel };
+
 type MoveGroupOptions = {
     from: { group: DockviewGroupPanel };
     to: { group: DockviewGroupPanel; position: Position };
@@ -2041,14 +2047,12 @@ export class DockviewComponent
                 let floatingBox: AnchoredBox | undefined;
 
                 /**
-                 * Set when a panel is extracted from its group into this new
-                 * window. Like the floating case, the move event is deferred
-                 * until the window is wired up so listeners observe the
-                 * panel's final `popout` location.
+                 * Popping out rehomes panels into `group`, so like the floating
+                 * case it owes the caller an `onDidMovePanel` per panel. The
+                 * events are deferred until the window is wired up so listeners
+                 * observe the panels' final `popout` location.
                  */
-                let extractedPanel:
-                    | { panel: DockviewPanel; from: DockviewGroupPanel }
-                    | undefined;
+                let movedPanels: MovedPanel[] = [];
 
                 if (
                     !options?.overridePopoutGroup &&
@@ -2064,10 +2068,9 @@ export class DockviewComponent
                             group.model.openPanel(panel);
                         });
 
-                        extractedPanel = {
-                            panel: itemToPopout,
-                            from: sourceGroup,
-                        };
+                        movedPanels = [
+                            { panel: itemToPopout, from: sourceGroup },
+                        ];
                     } else {
                         this.movingLock(() =>
                             moveGroupWithoutDestroying({
@@ -2075,6 +2078,13 @@ export class DockviewComponent
                                 to: group,
                             })
                         );
+
+                        // a popped-out group is rebuilt as a new group in the
+                        // new window, so every panel really does change group
+                        movedPanels = group.panels.map((panel) => ({
+                            panel,
+                            from: referenceGroup,
+                        }));
 
                         switch (referenceLocation) {
                             case 'grid':
@@ -2278,11 +2288,8 @@ export class DockviewComponent
                     window: value.getWindow(),
                 });
 
-                if (extractedPanel) {
-                    this.fireDidMovePanel(
-                        extractedPanel.panel,
-                        extractedPanel.from
-                    );
+                for (const { panel, from } of movedPanels) {
+                    this.fireDidMovePanel(panel, from);
                 }
 
                 return true;
@@ -2553,14 +2560,12 @@ export class DockviewComponent
         let group: DockviewGroupPanel;
 
         /**
-         * Extracting a panel relocates it between groups exactly like a drop
-         * onto the grid does, so it owes the caller an `onDidMovePanel`. The
-         * event is deferred until the window is mounted below: only then does
-         * the panel report its final `floating` location.
+         * Floating relocates panels exactly like a drop onto the grid does, so
+         * it owes the caller an `onDidMovePanel` per panel. The events are
+         * deferred until the window is mounted below: only then do the panels
+         * report their final `floating` location.
          */
-        let extractedPanel:
-            | { panel: DockviewPanel; from: DockviewGroupPanel }
-            | undefined;
+        let movedPanels: MovedPanel[] = [];
 
         if (item instanceof DockviewPanel) {
             const sourceGroup = item.group;
@@ -2580,7 +2585,7 @@ export class DockviewComponent
                 group.model.openPanel(item, { skipSetGroupActive: true })
             );
 
-            extractedPanel = { panel: item, from: sourceGroup };
+            movedPanels = [{ panel: item, from: sourceGroup }];
         } else {
             group = item;
 
@@ -2610,12 +2615,26 @@ export class DockviewComponent
                         skipDispose: true,
                     });
                     group = popoutReferenceGroup;
+
+                    // the group's panels were rehomed into the reference group
+                    movedPanels = group.panels.map((panel) => ({
+                        panel,
+                        from: item,
+                    }));
                 } else {
                     this.doRemoveGroup(item, {
                         skipDispose: true,
                         skipPopoutReturn: true,
                         skipPopoutAssociated: false,
                     });
+
+                    // the group itself is being relocated and keeps its panels,
+                    // so `from` and `to` are the same group. This matches how
+                    // `moveGroup` reports dragging a group to a new grid slot.
+                    movedPanels = group.panels.map((panel) => ({
+                        panel,
+                        from: group,
+                    }));
                 }
             }
         }
@@ -2692,8 +2711,8 @@ export class DockviewComponent
             }
         );
 
-        if (extractedPanel) {
-            this.fireDidMovePanel(extractedPanel.panel, extractedPanel.from);
+        for (const { panel, from } of movedPanels) {
+            this.fireDidMovePanel(panel, from);
         }
     }
 

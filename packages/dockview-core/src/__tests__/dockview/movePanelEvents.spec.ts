@@ -191,19 +191,72 @@ describe('onDidMovePanel', () => {
         expect(recorded[0].location).toBe('popout');
     });
 
-    test('does not fire when the last panel of a group is popped out', async () => {
+    test('fires for every panel when a whole group is popped out', async () => {
         const panel1 = dockview.addPanel({
             id: 'panel1',
             component: 'default',
         });
+        const panel2 = dockview.addPanel({
+            id: 'panel2',
+            component: 'default',
+        });
+        const originalGroup = panel1.group;
 
         record();
 
-        // a single-panel group pops the whole group out; the panel keeps its
-        // group so no panel-level move has occurred
-        await dockview.addPopoutGroup(panel1 as DockviewPanel);
+        await dockview.addPopoutGroup(originalGroup);
 
-        expect(recorded).toEqual([]);
+        // a popped-out group is rebuilt as a new group in the new window, so
+        // both panels genuinely change group
+        expect(recorded).toEqual([
+            {
+                panel: 'panel1',
+                from: originalGroup.id,
+                to: panel1.group.id,
+                location: 'popout',
+            },
+            {
+                panel: 'panel2',
+                from: originalGroup.id,
+                to: panel2.group.id,
+                location: 'popout',
+            },
+        ]);
+        expect(panel1.group.id).not.toBe(originalGroup.id);
+    });
+
+    test('fires for every panel when a whole group is floated', () => {
+        const panel1 = dockview.addPanel({
+            id: 'panel1',
+            component: 'default',
+        });
+        const panel2 = dockview.addPanel({
+            id: 'panel2',
+            component: 'default',
+        });
+        const group = panel1.group;
+
+        record();
+
+        dockview.addFloatingGroup(group);
+
+        // the group keeps its panels, so `to` equals `from`, matching how
+        // `moveGroup` reports a group dragged to a new grid slot
+        expect(recorded).toEqual([
+            {
+                panel: 'panel1',
+                from: group.id,
+                to: group.id,
+                location: 'floating',
+            },
+            {
+                panel: 'panel2',
+                from: group.id,
+                to: group.id,
+                location: 'floating',
+            },
+        ]);
+        expect(panel2.group.id).toBe(group.id);
     });
 
     test('does not fire when floating groups are restored from JSON', () => {
