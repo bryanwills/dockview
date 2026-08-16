@@ -91,15 +91,29 @@ export class OverlayRenderContainer extends CompositeDisposable {
             /** Set once real geometry has been written to the overlay element. */
             positioned: boolean;
             /**
-             * Bumped by every `attach`. Each `attach` closes over its own
-             * `referenceContainer`, so a `resize` from a superseded `attach`
-             * would measure the wrong (often detached) element.
+             * The reference container the overlay currently tracks. `attach` is
+             * routinely called again with the *same* container (re-open, active
+             * panel change); only a change of container invalidates work that is
+             * already scheduled.
+             */
+            referenceContainer?: IRenderable;
+            /**
+             * Taken from `_generation` whenever the reference container changes.
+             * Each `attach` closes over its own `referenceContainer`, so a
+             * `resize` from a superseded `attach` would measure the wrong (often
+             * detached) element.
              */
             generation: number;
         }
     > = {};
 
     private _disposed = false;
+    /**
+     * Monotonic across the container's lifetime, never per-entry: `detatch()`
+     * deletes the map entry, so an entry-local counter restarts at 0 and a
+     * superseded closure can collide with the generation of a later `attach`.
+     */
+    private _generation = 0;
     private readonly positionCache = new PositionCache();
     /**
      * Panel id -> handle of the queued reposition frame. Keyed by panel so a
@@ -218,7 +232,7 @@ export class OverlayRenderContainer extends CompositeDisposable {
                 element,
                 retainPreviousGeometry: false,
                 positioned: false,
-                generation: 0,
+                generation: ++this._generation,
             };
         } else {
             const entry = this.map[panel.api.id];
@@ -233,19 +247,33 @@ export class OverlayRenderContainer extends CompositeDisposable {
             entry.retainPreviousGeometry = entry.positioned;
         }
 
-        // Supersede any earlier `attach`: cancel the frame it queued (bound to
-        // the previous reference container) and take a fresh generation so its
-        // `resize` closure can no longer schedule one. During
-        // `fromJSON({ reuseExistingPanels: true })` the previous container is a
-        // detached staging group measuring 0x0, and leaving its frame in flight
-        // both wasted the update and, because `pendingUpdates` is keyed only by
-        // panel id, swallowed the reposition against the real container.
-        const generation = this.map[panel.api.id].generation + 1;
-        this.map[panel.api.id].generation = generation;
+        const mapEntry = this.map[panel.api.id];
 
-        this.cancelPendingUpdate(panel.api.id);
+        /**
+         * Supersede the previous `attach` only when the reference container has
+         * actually changed: cancel the frame it queued (bound to the old
+         * container) and take a fresh generation so its `resize` closure can no
+         * longer schedule one. During
+         * `fromJSON({ reuseExistingPanels: true })` the previous container is a
+         * detached staging group measuring 0x0, and leaving its frame in flight
+         * both wasted the update and, because `pendingUpdates` is keyed only by
+         * panel id, swallowed the reposition against the real container.
+         *
+         * Re-attaching over the *same* container must leave scheduled work
+         * alone. `repositionPanelOverlay` (the auto-hide peek) schedules a frame
+         * carrying the sticky `forceVisible`/`clip` state, and `attach` does not
+         * re-apply it — a peeked panel's `api.isVisible` is false, so cancelling
+         * that frame leaves `visibilityChanged` to hide the overlay and the peek
+         * renders nothing.
+         */
+        if (mapEntry.referenceContainer !== referenceContainer) {
+            mapEntry.generation = ++this._generation;
+            this.cancelPendingUpdate(panel.api.id);
+        }
+        mapEntry.referenceContainer = referenceContainer;
 
-        const focusContainer = this.map[panel.api.id].element;
+        const generation = mapEntry.generation;
+        const focusContainer = mapEntry.element;
 
         // Capture the content element now so the destroy disposable below
         // does not re-query the renderer's `element` getter during teardown.

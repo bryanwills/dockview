@@ -717,6 +717,151 @@ describe('overlayRenderContainer', () => {
         expect(overlay.style.visibility).toBe('');
     });
 
+    test('a detatch between two attaches does not let the superseded resize win', async () => {
+        // `detatch` deletes the map entry, so a generation counter stored on the
+        // entry restarts at 0 and the *superseded* attach can end up holding the
+        // same generation as the live one. Its `resize` then passes the guard,
+        // paints the removed element against the old container and occupies
+        // `pendingUpdates`, so the live overlay is never positioned at all.
+        const cut = new OverlayRenderContainer(
+            parentContainer,
+            fromPartial<DockviewComponent>({})
+        );
+
+        const panelContentEl = document.createElement('div');
+        const onDidVisibilityChange = new Emitter<any>();
+        const onDidDimensionsChange = new Emitter<any>();
+        const onDidLocationChange = new Emitter<any>();
+
+        const panel = fromPartial<IDockviewPanel>({
+            api: {
+                id: 'test_panel_id',
+                onDidVisibilityChange: onDidVisibilityChange.event,
+                onDidDimensionsChange: onDidDimensionsChange.event,
+                onDidLocationChange: onDidLocationChange.event,
+                isVisible: true,
+                location: { type: 'grid' },
+            },
+            view: { content: { element: panelContentEl } },
+            group: { api: { location: { type: 'grid' } } },
+        });
+
+        jest.spyOn(parentContainer, 'getBoundingClientRect').mockReturnValue(
+            fromPartial<DOMRect>({ left: 0, top: 0, width: 1000, height: 1000 })
+        );
+        jest.spyOn(
+            referenceContainer.element,
+            'getBoundingClientRect'
+        ).mockReturnValue(
+            fromPartial<DOMRect>({
+                left: 100,
+                top: 200,
+                width: 300,
+                height: 400,
+            })
+        );
+
+        const replacementContainer: IRenderable = {
+            element: document.createElement('div'),
+            dropTarget: fromPartial<Droptarget>({}),
+        };
+        jest.spyOn(
+            replacementContainer.element,
+            'getBoundingClientRect'
+        ).mockReturnValue(
+            fromPartial<DOMRect>({
+                left: 150,
+                top: 250,
+                width: 350,
+                height: 450,
+            })
+        );
+
+        // attach -> detatch -> attach, all before any frame runs.
+        cut.attach({ panel, referenceContainer });
+        cut.detatch(panel);
+        const overlay = cut.attach({
+            panel,
+            referenceContainer: replacementContainer,
+        });
+
+        await exhaustMicrotaskQueue();
+        await exhaustAnimationFrame();
+
+        // The live overlay is the one that gets positioned and revealed.
+        expect(overlay.style.left).toBe('150px');
+        expect(overlay.style.top).toBe('250px');
+        expect(overlay.style.width).toBe('350px');
+        expect(overlay.style.height).toBe('450px');
+        expect(overlay.style.visibility).toBe('');
+    });
+
+    test('re-attaching over the same container keeps a pending peek reposition', async () => {
+        // `repositionPanelOverlay` schedules a frame carrying the sticky
+        // `forceVisible`/`clip` peek state, and `attach` does not re-apply it —
+        // a peeked panel's `api.isVisible` is false, so `visibilityChanged`
+        // hides the overlay and only that frame brings it back. Cancelling
+        // scheduled work on a same-container re-attach therefore blanks the
+        // peeked panel.
+        const cut = new OverlayRenderContainer(
+            parentContainer,
+            fromPartial<DockviewComponent>({})
+        );
+
+        const panelContentEl = document.createElement('div');
+        const onDidVisibilityChange = new Emitter<any>();
+        const onDidDimensionsChange = new Emitter<any>();
+        const onDidLocationChange = new Emitter<any>();
+
+        const panel = fromPartial<IDockviewPanel>({
+            api: {
+                id: 'test_panel_id',
+                onDidVisibilityChange: onDidVisibilityChange.event,
+                onDidDimensionsChange: onDidDimensionsChange.event,
+                onDidLocationChange: onDidLocationChange.event,
+                isVisible: true,
+                location: { type: 'grid' },
+            },
+            view: { content: { element: panelContentEl } },
+            group: { api: { location: { type: 'grid' } } },
+        });
+
+        jest.spyOn(parentContainer, 'getBoundingClientRect').mockReturnValue(
+            fromPartial<DOMRect>({ left: 0, top: 0, width: 1000, height: 1000 })
+        );
+        jest.spyOn(
+            referenceContainer.element,
+            'getBoundingClientRect'
+        ).mockReturnValue(
+            fromPartial<DOMRect>({
+                left: 100,
+                top: 200,
+                width: 300,
+                height: 400,
+            })
+        );
+
+        const overlay = cut.attach({ panel, referenceContainer });
+        await exhaustMicrotaskQueue();
+        await exhaustAnimationFrame();
+        expect(overlay.style.visibility).toBe('');
+
+        // The peek collapses the group (so the panel is no longer "visible")
+        // and force-shows the overlay, scheduling a frame.
+        (panel as Writable<IDockviewPanel>).api.isVisible = false;
+        cut.repositionPanelOverlay('test_panel_id', true);
+
+        // A re-attach over the same container lands before that frame runs.
+        cut.attach({ panel, referenceContainer });
+
+        await exhaustMicrotaskQueue();
+        await exhaustAnimationFrame();
+
+        // The peek survives: still painted, and lifted over the peek backdrop.
+        expect(overlay.style.visibility).toBe('');
+        expect(overlay.style.zIndex).toBe('1000');
+    });
+
     test('resize rAF that fires after a panel was hidden mid-flight keeps visibility hidden', async () => {
         // Regression test for a race where:
         //   1. visibilityChanged(visible=true) schedules a resize rAF and clears pointerEvents

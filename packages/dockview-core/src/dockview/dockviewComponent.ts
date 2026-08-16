@@ -3492,6 +3492,30 @@ export class DockviewComponent
         }> = [];
         const temporaryGroupDisposables: IDisposable[] = [];
 
+        /**
+         * The staging groups are detached from `_groups` and never enter the
+         * grid, so nothing else will ever tear them down.
+         *
+         * `dispose()` reaches consumer `IContentRenderer.dispose()`, so one
+         * throwing renderer must not abort the rest of the cleanup — that would
+         * re-introduce the very leak this reclaims — nor replace the
+         * deserialization error the caller is being given. Draining the list
+         * also makes this safe to call more than once.
+         */
+        const disposeTemporaryGroups = () => {
+            for (const disposable of temporaryGroupDisposables) {
+                try {
+                    disposable.dispose();
+                } catch (err) {
+                    console.error(
+                        'dockview: failed to dispose a temporary group created for reuseExistingPanels',
+                        err
+                    );
+                }
+            }
+            temporaryGroupDisposables.length = 0;
+        };
+
         if (options?.reuseExistingPanels) {
             /**
              * Visible, always-rendered panels need individual staging groups
@@ -3541,24 +3565,37 @@ export class DockviewComponent
                 }
             }
 
-            this.movingLock(() => {
-                stagedPanels.forEach(({ panel, temporaryGroup }) => {
-                    this.moveGroupOrPanel({
-                        from: {
-                            groupId: panel.api.group.api.id,
-                            panelId: panel.api.id,
-                        },
-                        to: {
-                            group: temporaryGroup,
-                            position: 'center',
-                        },
-                        keepEmptyGroups: true,
+            /**
+             * Staging and the clear below run before the deserialization
+             * `try`, so a throw here (a consumer `onDidRemovePanel` handler, a
+             * renderer teardown during `clear`) would escape without reclaiming
+             * the staging groups already created above.
+             */
+            try {
+                this.movingLock(() => {
+                    stagedPanels.forEach(({ panel, temporaryGroup }) => {
+                        this.moveGroupOrPanel({
+                            from: {
+                                groupId: panel.api.group.api.id,
+                                panelId: panel.api.id,
+                            },
+                            to: {
+                                group: temporaryGroup,
+                                position: 'center',
+                            },
+                            keepEmptyGroups: true,
+                        });
                     });
                 });
-            });
-        }
 
-        this.clear();
+                this.clear();
+            } catch (err) {
+                disposeTemporaryGroups();
+                throw err;
+            }
+        } else {
+            this.clear();
+        }
 
         const { grid, panels, activeGroup } = data;
 
@@ -3751,14 +3788,7 @@ export class DockviewComponent
              */
             throw err;
         } finally {
-            /**
-             * The staging groups are detached from `_groups` and never enter
-             * the grid, so nothing else will ever tear them down. Dispose on
-             * both the success and the error path.
-             */
-            for (const disposable of temporaryGroupDisposables) {
-                disposable.dispose();
-            }
+            disposeTemporaryGroups();
         }
 
         // Force position updates for always visible panels after DOM layout is complete
