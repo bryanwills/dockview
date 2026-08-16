@@ -171,16 +171,26 @@ export class OverlayRenderContainer extends CompositeDisposable {
         entry.resize?.();
     }
 
+    /**
+     * Drop the reposition frame queued for a panel, if any. A queued frame is
+     * bound to the reference container that was current when it was scheduled,
+     * so it must be discarded whenever that container stops being the one the
+     * overlay should track.
+     */
+    private cancelPendingUpdate(panelId: string): void {
+        const queuedUpdate = this.pendingUpdates.get(panelId);
+        if (queuedUpdate !== undefined) {
+            cancelAnimationFrame(queuedUpdate);
+            this.pendingUpdates.delete(panelId);
+        }
+    }
+
     detatch(panel: IDockviewPanel): boolean {
         if (this.map[panel.api.id]) {
             const { disposable, destroy } = this.map[panel.api.id];
             disposable.dispose();
             destroy.dispose();
-            const queuedUpdate = this.pendingUpdates.get(panel.api.id);
-            if (queuedUpdate !== undefined) {
-                cancelAnimationFrame(queuedUpdate);
-                this.pendingUpdates.delete(panel.api.id);
-            }
+            this.cancelPendingUpdate(panel.api.id);
             delete this.map[panel.api.id];
             return true;
         }
@@ -233,11 +243,7 @@ export class OverlayRenderContainer extends CompositeDisposable {
         const generation = this.map[panel.api.id].generation + 1;
         this.map[panel.api.id].generation = generation;
 
-        const queuedUpdate = this.pendingUpdates.get(panel.api.id);
-        if (queuedUpdate !== undefined) {
-            cancelAnimationFrame(queuedUpdate);
-            this.pendingUpdates.delete(panel.api.id);
-        }
+        this.cancelPendingUpdate(panel.api.id);
 
         const focusContainer = this.map[panel.api.id].element;
 
