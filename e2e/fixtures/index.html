@@ -411,6 +411,97 @@
                     // Serialization round-trip (e.g. pinned state persistence).
                     snapshot: () => dockview.toJSON(),
                     restore: (state) => dockview.fromJSON(state),
+                    // Restore reusing the live panel instances rather than
+                    // recreating them. Reused `always`-rendered panels keep
+                    // their overlay element across the rebuild, so their
+                    // geometry has to survive the staging round-trip.
+                    restoreReuse: (state) =>
+                        dockview.fromJSON(state, { reuseExistingPanels: true }),
+                    // Two `always`-rendered panels side by side. Their content
+                    // lives in the overlay render container, positioned over
+                    // each group's content area.
+                    setupReuseAlways: () => {
+                        panels['left'] = dockview.addPanel({
+                            id: 'left',
+                            component: 'default',
+                            title: 'left',
+                            renderer: 'always',
+                        });
+                        panels['right'] = dockview.addPanel({
+                            id: 'right',
+                            component: 'default',
+                            title: 'right',
+                            renderer: 'always',
+                            position: {
+                                referencePanel: panels['left'],
+                                direction: 'right',
+                            },
+                        });
+                    },
+                    // Swap the two panels' groups, so restoring an earlier
+                    // snapshot has to move them back — the case where retained
+                    // (pre-rebuild) geometry is the *wrong* geometry.
+                    swapReuseAlways: () => {
+                        panels['left'].api.moveTo({
+                            group: panels['right'].api.group,
+                            position: 'right',
+                        });
+                    },
+                    // Add an `always`-rendered panel and immediately restore a
+                    // snapshot containing it, all in one tick — so the overlay
+                    // is attached twice before any positioning frame has run
+                    // and has no geometry to retain.
+                    addAlwaysThenReuseSameTick: (id) => {
+                        panels[id] = dockview.addPanel({
+                            id,
+                            component: 'default',
+                            title: id,
+                            renderer: 'always',
+                        });
+                        dockview.fromJSON(dockview.toJSON(), {
+                            reuseExistingPanels: true,
+                        });
+                    },
+                    // Sample a panel overlay's rect once per animation frame,
+                    // against the render container it is positioned within.
+                    // A mis-positioned overlay is only wrong for a frame or
+                    // two, so polling assertions would miss it entirely.
+                    sampleOverlayRects: (id, frames) =>
+                        new Promise((resolve) => {
+                            const samples = [];
+                            let remaining = frames;
+                            const step = () => {
+                                const overlay = Array.from(
+                                    document.querySelectorAll(
+                                        '.dv-render-overlay'
+                                    )
+                                ).find((el) =>
+                                    (el.textContent || '').includes(id)
+                                );
+                                if (overlay) {
+                                    const r = overlay.getBoundingClientRect();
+                                    const p =
+                                        overlay.parentElement.getBoundingClientRect();
+                                    samples.push({
+                                        visibility:
+                                            getComputedStyle(overlay)
+                                                .visibility,
+                                        left: r.left - p.left,
+                                        top: r.top - p.top,
+                                        width: r.width,
+                                        height: r.height,
+                                        parentWidth: p.width,
+                                        parentHeight: p.height,
+                                    });
+                                }
+                                if (--remaining > 0) {
+                                    requestAnimationFrame(step);
+                                } else {
+                                    resolve(samples);
+                                }
+                            };
+                            requestAnimationFrame(step);
+                        }),
                     // Tab titles in strip order for the first (or only) group —
                     // lets a spec assert pinned tabs sort ahead of unpinned.
                     tabTitles: () =>
