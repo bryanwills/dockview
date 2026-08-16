@@ -250,6 +250,11 @@ export interface SerializedDockview {
 export interface MovePanelEvent {
     panel: IDockviewPanel;
     from: DockviewGroupPanel;
+    /**
+     * The group the panel now belongs to. Equal to `from` when the panel kept
+     * its group and the group itself was relocated.
+     */
+    to: DockviewGroupPanel;
 }
 
 type MoveGroupOptions = {
@@ -4698,6 +4703,18 @@ export class DockviewComponent
         this._onDidActivePanelChange.fire({ panel, origin: this._origin });
     }
 
+    /**
+     * Announce that `panel` has finished relocating. Must be called once the
+     * move has settled: `to` is read from the panel's current group, so an
+     * early call would report the source group as the destination.
+     */
+    private fireDidMovePanel(
+        panel: IDockviewPanel,
+        from: DockviewGroupPanel
+    ): void {
+        this._onDidMovePanel.fire({ panel, from, to: panel.group });
+    }
+
     moveGroupOrPanel(options: MoveGroupOrPanelOptions): void {
         this.mutation('move', () => this._doMoveGroupOrPanel(options));
     }
@@ -4787,10 +4804,7 @@ export class DockviewComponent
                 this.doSetGroupAndPanelActive(destinationGroup);
             }
 
-            this._onDidMovePanel.fire({
-                panel: removedPanel,
-                from: sourceGroup,
-            });
+            this.fireDidMovePanel(removedPanel, sourceGroup);
         } else {
             /**
              * Dropping a panel to the extremities of a group which will place that panel
@@ -4836,10 +4850,10 @@ export class DockviewComponent
                         // which is equivalent to swapping two views in this case
                         this.gridview.moveView(sourceParentLocation, from, to);
 
-                        this._onDidMovePanel.fire({
-                            panel: this.getGroupPanel(sourceItemId)!,
-                            from: sourceGroup,
-                        });
+                        this.fireDidMovePanel(
+                            this.getGroupPanel(sourceItemId)!,
+                            sourceGroup
+                        );
 
                         return;
                     }
@@ -4902,10 +4916,10 @@ export class DockviewComponent
                     );
                     this.doSetGroupAndPanelActive(newGroup);
 
-                    this._onDidMovePanel.fire({
-                        panel: this.getGroupPanel(sourceItemId)!,
-                        from: sourceGroup,
-                    });
+                    this.fireDidMovePanel(
+                        this.getGroupPanel(sourceItemId)!,
+                        sourceGroup
+                    );
                     return;
                 }
 
@@ -4942,10 +4956,7 @@ export class DockviewComponent
                     );
                     this.doSetGroupAndPanelActive(newGroup);
 
-                    this._onDidMovePanel.fire({
-                        panel: removedPanel,
-                        from: sourceGroup,
-                    });
+                    this.fireDidMovePanel(removedPanel, sourceGroup);
                     return;
                 }
 
@@ -4978,10 +4989,10 @@ export class DockviewComponent
                 this.setGroupLocationForRoot(targetGroup, destinationGridview);
                 this.doSetGroupAndPanelActive(targetGroup);
 
-                this._onDidMovePanel.fire({
-                    panel: this.getGroupPanel(sourceItemId)!,
-                    from: sourceGroup,
-                });
+                this.fireDidMovePanel(
+                    this.getGroupPanel(sourceItemId)!,
+                    sourceGroup
+                );
             } else {
                 /**
                  * The group we are removing from has many panels, we need to remove the panels we are moving,
@@ -5020,10 +5031,7 @@ export class DockviewComponent
                 );
                 this.doSetGroupAndPanelActive(group);
 
-                this._onDidMovePanel.fire({
-                    panel: removedPanel,
-                    from: sourceGroup,
-                });
+                this.fireDidMovePanel(removedPanel, sourceGroup);
             }
         }
     }
@@ -5110,10 +5118,7 @@ export class DockviewComponent
             }
 
             for (const panel of removedPanels) {
-                this._onDidMovePanel.fire({
-                    panel,
-                    from: sourceGroup,
-                });
+                this.fireDidMovePanel(panel, sourceGroup);
             }
         };
 
@@ -5401,7 +5406,7 @@ export class DockviewComponent
         }
 
         source.panels.forEach((panel) => {
-            this._onDidMovePanel.fire({ panel, from });
+            this.fireDidMovePanel(panel, from);
         });
 
         this.debouncedUpdateAllPositions();

@@ -37,7 +37,11 @@ api.onDidActivePanelChange((event: DockviewActivePanelChangeEvent) => {
 });
 
 // Fires when a panel moves from one group to another
-api.onDidMovePanel((event: MovePanelEvent) => {});
+api.onDidMovePanel((event: MovePanelEvent) => {
+    // event.panel: IDockviewPanel
+    // event.from: DockviewGroupPanel, the group the panel left
+    // event.to: DockviewGroupPanel, the group the panel now belongs to
+});
 ```
 
 :::info
