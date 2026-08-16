@@ -3153,6 +3153,8 @@ describe('dockviewComponent', () => {
             { type: 'ADD_PANEL', panel: panel10 },
             { type: 'ACTIVE_PANEL', panel: panel10 },
             { type: 'ADD_GROUP', group: panel10.group },
+            // panel10 was extracted out of panel9's group into the new popout
+            { type: 'MOVE_PANEL', panel: panel10 },
         ]);
 
         events = [];

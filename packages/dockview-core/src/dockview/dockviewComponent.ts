@@ -2040,17 +2040,34 @@ export class DockviewComponent
 
                 let floatingBox: AnchoredBox | undefined;
 
+                /**
+                 * Set when a panel is extracted from its group into this new
+                 * window. Like the floating case, the move event is deferred
+                 * until the window is wired up so listeners observe the
+                 * panel's final `popout` location.
+                 */
+                let extractedPanel:
+                    | { panel: DockviewPanel; from: DockviewGroupPanel }
+                    | undefined;
+
                 if (
                     !options?.overridePopoutGroup &&
                     !options?.overridePopoutGridview &&
                     isGroupAddedToDom
                 ) {
                     if (itemToPopout instanceof DockviewPanel) {
+                        const sourceGroup = itemToPopout.group;
+
                         this.movingLock(() => {
                             const panel =
                                 referenceGroup.model.removePanel(itemToPopout);
                             group.model.openPanel(panel);
                         });
+
+                        extractedPanel = {
+                            panel: itemToPopout,
+                            from: sourceGroup,
+                        };
                     } else {
                         this.movingLock(() =>
                             moveGroupWithoutDestroying({
@@ -2260,6 +2277,13 @@ export class DockviewComponent
                     group: value.popoutGroup,
                     window: value.getWindow(),
                 });
+
+                if (extractedPanel) {
+                    this.fireDidMovePanel(
+                        extractedPanel.panel,
+                        extractedPanel.from
+                    );
+                }
 
                 return true;
             })
@@ -2528,7 +2552,19 @@ export class DockviewComponent
 
         let group: DockviewGroupPanel;
 
+        /**
+         * Extracting a panel relocates it between groups exactly like a drop
+         * onto the grid does, so it owes the caller an `onDidMovePanel`. The
+         * event is deferred until the window is mounted below: only then does
+         * the panel report its final `floating` location.
+         */
+        let extractedPanel:
+            | { panel: DockviewPanel; from: DockviewGroupPanel }
+            | undefined;
+
         if (item instanceof DockviewPanel) {
+            const sourceGroup = item.group;
+
             group = this.createGroup();
             this._onDidAddGroup.fire(group);
 
@@ -2543,6 +2579,8 @@ export class DockviewComponent
             this.movingLock(() =>
                 group.model.openPanel(item, { skipSetGroupActive: true })
             );
+
+            extractedPanel = { panel: item, from: sourceGroup };
         } else {
             group = item;
 
@@ -2653,6 +2691,10 @@ export class DockviewComponent
                 disableSmartGuides: options?.disableSmartGuides,
             }
         );
+
+        if (extractedPanel) {
+            this.fireDidMovePanel(extractedPanel.panel, extractedPanel.from);
+        }
     }
 
     /**

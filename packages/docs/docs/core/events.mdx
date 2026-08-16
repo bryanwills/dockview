@@ -48,6 +48,10 @@ api.onDidMovePanel((event: MovePanelEvent) => {
 `onDidAddPanel` and `onDidRemovePanel` fire during panel moves. A panel being moved from group A to group B will trigger a remove followed by an add. Use `onDidMovePanel` if you only want to react to explicit moves.
 :::
 
+:::info
+`onDidMovePanel` covers every way a panel changes group, including being dragged out into a new floating group or popout window. It fires once the move has settled, so `event.panel.api.location` already reports the destination. When a group is relocated as a whole its panels keep their group, so `event.to` equals `event.from`.
+:::
+
 ## Group lifecycle
 
 These events fire when groups are added, removed, or change active state.
