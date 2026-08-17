@@ -58,9 +58,12 @@ test.describe('reuseExistingPanels overlay geometry', () => {
             if (s.visibility === 'hidden') {
                 continue; // not painted, so its geometry cannot be seen
             }
-            // Painted means positioned: it must not span the container.
+            // Painted means positioned: it must not span the container. The
+            // width bound is the decisive one — 'fresh' joins one half of a
+            // left/right split, so an unpositioned overlay reads as the full
+            // container width. A height bound would only be measuring the tab
+            // header, which is styling-dependent and too tight to assert on.
             expect(s.width).toBeLessThan(s.parentWidth * 0.9);
-            expect(s.height).toBeLessThan(s.parentHeight * 0.99);
         }
     });
 

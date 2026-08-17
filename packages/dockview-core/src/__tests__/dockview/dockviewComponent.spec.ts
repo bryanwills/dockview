@@ -2066,6 +2066,64 @@ describe('dockviewComponent', () => {
             dockview.dispose();
         });
 
+        /**
+         * Identify the staging groups a `reuseExistingPanels` restore creates.
+         * They are all created before the layout `clear()`, so that boundary
+         * names them exactly — unlike "absent from `dockview.groups`", which
+         * also matches ordinary groups observed mid-`clear()`.
+         *
+         * Pass `onClear` to make the clear phase fail instead of running.
+         */
+        const trackStagingGroups = (onClear?: () => void) => {
+            const stagingGroupIds = new Set<string>();
+            let cleared = false;
+
+            const originalClear = dockview.clear.bind(dockview);
+            const clearSpy = jest
+                .spyOn(dockview, 'clear')
+                .mockImplementation(() => {
+                    cleared = true;
+                    return (onClear ?? originalClear)();
+                });
+
+            const originalCreateGroup = dockview.createGroup.bind(dockview);
+            const createGroupSpy = jest
+                .spyOn(dockview, 'createGroup')
+                .mockImplementation((options) => {
+                    const group = originalCreateGroup(options);
+                    if (!cleared) {
+                        stagingGroupIds.add(group.api.id);
+                    }
+                    return group;
+                });
+
+            return {
+                stagingGroupIds,
+                restore: () => {
+                    clearSpy.mockRestore();
+                    createGroupSpy.mockRestore();
+                },
+            };
+        };
+
+        /** Record every `DockviewGroupPanel.dispose()` by group id. */
+        const trackGroupDisposals = (
+            onDispose?: (group: DockviewGroupPanel) => void
+        ) => {
+            const disposed = new Set<string>();
+            const originalDispose = DockviewGroupPanel.prototype.dispose;
+            const disposeSpy = jest
+                .spyOn(DockviewGroupPanel.prototype, 'dispose')
+                .mockImplementation(function (this: DockviewGroupPanel) {
+                    disposed.add(this.api.id);
+                    const result = originalDispose.call(this);
+                    onDispose?.(this);
+                    return result;
+                });
+
+            return { disposed, restore: () => disposeSpy.mockRestore() };
+        };
+
         test('reuseExistingPanels disposes the staging groups it creates', () => {
             // The staging groups are removed from `_groups` so the layout clear
             // skips them, which also means nothing else will ever tear them
@@ -2089,41 +2147,58 @@ describe('dockviewComponent', () => {
                 },
             });
 
-            const created: DockviewGroupPanel[] = [];
-            const originalCreateGroup = dockview.createGroup.bind(dockview);
-            const createGroupSpy = jest
-                .spyOn(dockview, 'createGroup')
-                .mockImplementation((options) => {
-                    const group = originalCreateGroup(options);
-                    created.push(group);
-                    return group;
-                });
-
-            const disposed = new Set<string>();
-            const originalDispose = DockviewGroupPanel.prototype.dispose;
-            const disposeSpy = jest
-                .spyOn(DockviewGroupPanel.prototype, 'dispose')
-                .mockImplementation(function (this: DockviewGroupPanel) {
-                    disposed.add(this.api.id);
-                    return originalDispose.call(this);
-                });
+            const staging = trackStagingGroups();
+            const disposals = trackGroupDisposals();
 
             dockview.fromJSON(dockview.toJSON(), {
                 reuseExistingPanels: true,
             });
 
-            createGroupSpy.mockRestore();
-            disposeSpy.mockRestore();
+            staging.restore();
+            disposals.restore();
 
             // Two visible `always` panels => two individual staging groups.
-            const stagingGroups = created.filter(
-                (group) => !dockview.groups.includes(group)
-            );
-            expect(stagingGroups.length).toBeGreaterThanOrEqual(2);
+            expect(staging.stagingGroupIds.size).toBeGreaterThanOrEqual(2);
 
-            for (const group of stagingGroups) {
-                expect(disposed.has(group.api.id)).toBe(true);
+            for (const id of staging.stagingGroupIds) {
+                expect(disposals.disposed.has(id)).toBe(true);
             }
+        });
+
+        test('reuseExistingPanels does not dispose panels the restore leaves staged', () => {
+            // Every reused panel is staged, but `deserializeEdgeGroups` always
+            // rebuilds edge panels through the deserializer instead of
+            // reclaiming them, so an edge panel is still inside its staging
+            // group when the teardown runs. Disposing the group there would
+            // call the consumer's `IContentRenderer.dispose()` for a panel id
+            // that is live in the restored layout.
+            dockview.layout(1000, 1000);
+
+            dockview.addPanel({ id: 'panel1', component: 'default' });
+            dockview.addEdgeGroup('left', {
+                id: 'edge-left',
+                initialSize: 200,
+            });
+            const edgePanel = dockview.addPanel({
+                id: 'edgePanel',
+                component: 'default',
+                position: {
+                    referenceGroup: 'edge-left',
+                    direction: 'within',
+                },
+            });
+
+            const content = edgePanel.view.content as PanelContentPartTest;
+            expect(content.isDisposed).toBe(false);
+
+            dockview.fromJSON(dockview.toJSON(), {
+                reuseExistingPanels: true,
+            });
+
+            // The id is live in the restored layout...
+            expect(dockview.getGroupPanel('edgePanel')).toBeDefined();
+            // ...so the renderer behind it must not have been torn down.
+            expect(content.isDisposed).toBe(false);
         });
 
         test('reuseExistingPanels disposes the staging groups when the rebuild throws', () => {
@@ -2147,48 +2222,24 @@ describe('dockviewComponent', () => {
                 },
             });
 
-            const created: DockviewGroupPanel[] = [];
-            const originalCreateGroup = dockview.createGroup.bind(dockview);
-            const createGroupSpy = jest
-                .spyOn(dockview, 'createGroup')
-                .mockImplementation((options) => {
-                    const group = originalCreateGroup(options);
-                    created.push(group);
-                    return group;
-                });
-
-            const disposed = new Set<string>();
-            const originalDispose = DockviewGroupPanel.prototype.dispose;
-            const disposeSpy = jest
-                .spyOn(DockviewGroupPanel.prototype, 'dispose')
-                .mockImplementation(function (this: DockviewGroupPanel) {
-                    disposed.add(this.api.id);
-                    return originalDispose.call(this);
-                });
-
             const boom = new Error('clear failed');
-            const clearSpy = jest
-                .spyOn(dockview, 'clear')
-                .mockImplementationOnce(() => {
-                    throw boom;
-                });
+            const staging = trackStagingGroups(() => {
+                throw boom;
+            });
+            const disposals = trackGroupDisposals();
 
             const state = dockview.toJSON();
             expect(() =>
                 dockview.fromJSON(state, { reuseExistingPanels: true })
             ).toThrow(boom);
 
-            clearSpy.mockRestore();
-            createGroupSpy.mockRestore();
-            disposeSpy.mockRestore();
+            staging.restore();
+            disposals.restore();
 
-            const stagingGroups = created.filter(
-                (group) => !dockview.groups.includes(group)
-            );
-            expect(stagingGroups.length).toBeGreaterThanOrEqual(2);
+            expect(staging.stagingGroupIds.size).toBeGreaterThanOrEqual(2);
 
-            for (const group of stagingGroups) {
-                expect(disposed.has(group.api.id)).toBe(true);
+            for (const id of staging.stagingGroupIds) {
+                expect(disposals.disposed.has(id)).toBe(true);
             }
         });
 
@@ -2213,30 +2264,19 @@ describe('dockviewComponent', () => {
                 },
             });
 
-            const created: DockviewGroupPanel[] = [];
-            const originalCreateGroup = dockview.createGroup.bind(dockview);
-            const createGroupSpy = jest
-                .spyOn(dockview, 'createGroup')
-                .mockImplementation((options) => {
-                    const group = originalCreateGroup(options);
-                    created.push(group);
-                    return group;
-                });
+            const staging = trackStagingGroups();
 
-            const disposed = new Set<string>();
-            const originalDispose = DockviewGroupPanel.prototype.dispose;
             let thrownOnce = false;
-            const disposeSpy = jest
-                .spyOn(DockviewGroupPanel.prototype, 'dispose')
-                .mockImplementation(function (this: DockviewGroupPanel) {
-                    disposed.add(this.api.id);
-                    const result = originalDispose.call(this);
-                    if (!thrownOnce && !dockview.groups.includes(this)) {
-                        thrownOnce = true;
-                        throw new Error('renderer teardown failed');
-                    }
-                    return result;
-                });
+            const disposals = trackGroupDisposals((group) => {
+                if (
+                    !thrownOnce &&
+                    staging.stagingGroupIds.has(group.api.id)
+                ) {
+                    thrownOnce = true;
+                    throw new Error('renderer teardown failed');
+                }
+            });
+
             const consoleError = jest
                 .spyOn(console, 'error')
                 .mockImplementation(() => {
@@ -2250,20 +2290,17 @@ describe('dockviewComponent', () => {
                 })
             ).not.toThrow();
 
-            createGroupSpy.mockRestore();
-            disposeSpy.mockRestore();
+            staging.restore();
+            disposals.restore();
             consoleError.mockRestore();
 
             expect(thrownOnce).toBe(true);
 
             // Every staging group was still attempted, not just those before
             // the one that threw.
-            const stagingGroups = created.filter(
-                (group) => !dockview.groups.includes(group)
-            );
-            expect(stagingGroups.length).toBeGreaterThanOrEqual(2);
-            for (const group of stagingGroups) {
-                expect(disposed.has(group.api.id)).toBe(true);
+            expect(staging.stagingGroupIds.size).toBeGreaterThanOrEqual(2);
+            for (const id of staging.stagingGroupIds) {
+                expect(disposals.disposed.has(id)).toBe(true);
             }
         });
 

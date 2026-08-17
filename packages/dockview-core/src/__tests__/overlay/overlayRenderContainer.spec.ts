@@ -796,6 +796,87 @@ describe('overlayRenderContainer', () => {
         expect(overlay.style.visibility).toBe('');
     });
 
+    test('keeps repositioning when requestAnimationFrame runs its callback synchronously', async () => {
+        // Several suites in this repo shim rAF to run inline, and non-browser
+        // hosts commonly polyfill it the same way. Recording the frame handle
+        // *after* scheduling then writes it back over the slot the callback
+        // just cleared, so the overlay looks permanently "already scheduled"
+        // and never repositions again.
+        const originalRaf = global.requestAnimationFrame;
+        global.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+            cb(0);
+            return 1;
+        }) as typeof requestAnimationFrame;
+
+        try {
+            const cut = new OverlayRenderContainer(
+                parentContainer,
+                fromPartial<DockviewComponent>({})
+            );
+
+            const panelContentEl = document.createElement('div');
+            const onDidVisibilityChange = new Emitter<any>();
+            const onDidDimensionsChange = new Emitter<any>();
+            const onDidLocationChange = new Emitter<any>();
+
+            const panel = fromPartial<IDockviewPanel>({
+                api: {
+                    id: 'test_panel_id',
+                    onDidVisibilityChange: onDidVisibilityChange.event,
+                    onDidDimensionsChange: onDidDimensionsChange.event,
+                    onDidLocationChange: onDidLocationChange.event,
+                    isVisible: true,
+                    location: { type: 'grid' },
+                },
+                view: { content: { element: panelContentEl } },
+                group: { api: { location: { type: 'grid' } } },
+            });
+
+            jest.spyOn(
+                parentContainer,
+                'getBoundingClientRect'
+            ).mockReturnValue(
+                fromPartial<DOMRect>({
+                    left: 0,
+                    top: 0,
+                    width: 1000,
+                    height: 1000,
+                })
+            );
+            const rect = jest
+                .spyOn(referenceContainer.element, 'getBoundingClientRect')
+                .mockReturnValue(
+                    fromPartial<DOMRect>({
+                        left: 100,
+                        top: 200,
+                        width: 300,
+                        height: 400,
+                    })
+                );
+
+            const overlay = cut.attach({ panel, referenceContainer });
+            await exhaustMicrotaskQueue();
+
+            expect(overlay.style.left).toBe('100px');
+
+            // Move the reference container and ask for a reposition.
+            rect.mockReturnValue(
+                fromPartial<DOMRect>({
+                    left: 150,
+                    top: 250,
+                    width: 350,
+                    height: 450,
+                })
+            );
+            cut.updateAllPositions();
+
+            expect(overlay.style.left).toBe('150px');
+            expect(overlay.style.top).toBe('250px');
+        } finally {
+            global.requestAnimationFrame = originalRaf;
+        }
+    });
+
     test('re-attaching over the same container keeps a pending peek reposition', async () => {
         // `repositionPanelOverlay` schedules a frame carrying the sticky
         // `forceVisible`/`clip` peek state, and `attach` does not re-apply it —

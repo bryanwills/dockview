@@ -66,6 +66,14 @@ export interface IRenderable {
     readonly dropTarget: Droptarget;
 }
 
+/**
+ * Placeholder handle marking "a reposition frame has been requested but the
+ * real handle is not known yet". Never passed to `cancelAnimationFrame` in
+ * practice — it is replaced within the same synchronous block — and harmless
+ * if it were, since no frame carries this id.
+ */
+const SCHEDULED = -1;
+
 function createFocusableElement(): HTMLDivElement {
     const element = document.createElement('div');
     element.tabIndex = -1;
@@ -91,37 +99,24 @@ export class OverlayRenderContainer extends CompositeDisposable {
             /** Set once real geometry has been written to the overlay element. */
             positioned: boolean;
             /**
-             * The reference container the overlay currently tracks. `attach` is
-             * routinely called again with the *same* container (re-open, active
-             * panel change); only a change of container invalidates work that is
-             * already scheduled.
+             * The reference container the overlay currently tracks. Each
+             * `attach` closes over its own `referenceContainer`, so comparing
+             * against this is what tells a `resize` whether it has been
+             * superseded — a stale closure would otherwise measure the wrong
+             * (often detached) element.
              */
             referenceContainer?: IRenderable;
             /**
-             * Taken from `_generation` whenever the reference container changes.
-             * Each `attach` closes over its own `referenceContainer`, so a
-             * `resize` from a superseded `attach` would measure the wrong (often
-             * detached) element.
+             * Handle of the queued reposition frame, so a burst of `resize()`
+             * calls collapses into one frame and a superseded `attach` can
+             * cancel work bound to the previous container.
              */
-            generation: number;
+            pendingUpdate?: number;
         }
     > = {};
 
     private _disposed = false;
-    /**
-     * Monotonic across the container's lifetime, never per-entry: `detatch()`
-     * deletes the map entry, so an entry-local counter restarts at 0 and a
-     * superseded closure can collide with the generation of a later `attach`.
-     */
-    private _generation = 0;
     private readonly positionCache = new PositionCache();
-    /**
-     * Panel id -> handle of the queued reposition frame. Keyed by panel so a
-     * burst of `resize()` calls collapses into one frame, but the handle is
-     * retained so `attach` can cancel a frame that is bound to a stale
-     * reference container (see the cancellation in `attach`).
-     */
-    private readonly pendingUpdates = new Map<string, number>();
 
     constructor(
         readonly element: HTMLElement,
@@ -134,11 +129,8 @@ export class OverlayRenderContainer extends CompositeDisposable {
                 for (const value of Object.values(this.map)) {
                     value.disposable.dispose();
                     value.destroy.dispose();
+                    this.cancelPendingUpdate(value);
                 }
-                for (const handle of this.pendingUpdates.values()) {
-                    cancelAnimationFrame(handle);
-                }
-                this.pendingUpdates.clear();
                 this._disposed = true;
             })
         );
@@ -191,20 +183,19 @@ export class OverlayRenderContainer extends CompositeDisposable {
      * so it must be discarded whenever that container stops being the one the
      * overlay should track.
      */
-    private cancelPendingUpdate(panelId: string): void {
-        const queuedUpdate = this.pendingUpdates.get(panelId);
-        if (queuedUpdate !== undefined) {
-            cancelAnimationFrame(queuedUpdate);
-            this.pendingUpdates.delete(panelId);
+    private cancelPendingUpdate(entry: { pendingUpdate?: number }): void {
+        if (entry.pendingUpdate !== undefined) {
+            cancelAnimationFrame(entry.pendingUpdate);
+            entry.pendingUpdate = undefined;
         }
     }
 
     detatch(panel: IDockviewPanel): boolean {
         if (this.map[panel.api.id]) {
-            const { disposable, destroy } = this.map[panel.api.id];
-            disposable.dispose();
-            destroy.dispose();
-            this.cancelPendingUpdate(panel.api.id);
+            const entry = this.map[panel.api.id];
+            entry.disposable.dispose();
+            entry.destroy.dispose();
+            this.cancelPendingUpdate(entry);
             delete this.map[panel.api.id];
             return true;
         }
@@ -232,7 +223,6 @@ export class OverlayRenderContainer extends CompositeDisposable {
                 element,
                 retainPreviousGeometry: false,
                 positioned: false,
-                generation: ++this._generation,
             };
         } else {
             const entry = this.map[panel.api.id];
@@ -250,29 +240,27 @@ export class OverlayRenderContainer extends CompositeDisposable {
         const mapEntry = this.map[panel.api.id];
 
         /**
-         * Supersede the previous `attach` only when the reference container has
-         * actually changed: cancel the frame it queued (bound to the old
-         * container) and take a fresh generation so its `resize` closure can no
-         * longer schedule one. During
-         * `fromJSON({ reuseExistingPanels: true })` the previous container is a
-         * detached staging group measuring 0x0, and leaving its frame in flight
-         * both wasted the update and, because `pendingUpdates` is keyed only by
-         * panel id, swallowed the reposition against the real container.
+         * Point the overlay at this `attach`'s container. `resize` compares the
+         * container it closed over against this, so any `resize` belonging to a
+         * superseded `attach` becomes a no-op.
          *
-         * Re-attaching over the *same* container must leave scheduled work
-         * alone. `repositionPanelOverlay` (the auto-hide peek) schedules a frame
-         * carrying the sticky `forceVisible`/`clip` state, and `attach` does not
-         * re-apply it — a peeked panel's `api.isVisible` is false, so cancelling
-         * that frame leaves `visibilityChanged` to hide the overlay and the peek
-         * renders nothing.
+         * Only a *change* of container discards work already scheduled. During
+         * `fromJSON({ reuseExistingPanels: true })` the previous container is a
+         * detached staging group measuring 0x0, so leaving its frame in flight
+         * both wastes the update and delays the reposition against the real
+         * container. But re-attaching over the same container (re-open, active
+         * panel change) must leave scheduled work alone:
+         * `repositionPanelOverlay` (the auto-hide peek) schedules a frame
+         * carrying the sticky `forceVisible`/`clip` state which `attach` does
+         * not re-apply, and a peeked panel's `api.isVisible` is false — so
+         * cancelling it leaves `visibilityChanged` to hide the overlay and the
+         * peek renders nothing.
          */
         if (mapEntry.referenceContainer !== referenceContainer) {
-            mapEntry.generation = ++this._generation;
-            this.cancelPendingUpdate(panel.api.id);
+            this.cancelPendingUpdate(mapEntry);
+            mapEntry.referenceContainer = referenceContainer;
         }
-        mapEntry.referenceContainer = referenceContainer;
 
-        const generation = mapEntry.generation;
         const focusContainer = mapEntry.element;
 
         // Capture the content element now so the destroy disposable below
@@ -292,20 +280,37 @@ export class OverlayRenderContainer extends CompositeDisposable {
 
         const resize = () => {
             const panelId = panel.api.id;
+            const scheduling = this.map[panelId];
 
-            if (this.map[panelId]?.generation !== generation) {
+            if (scheduling?.referenceContainer !== referenceContainer) {
                 return; // superseded by a later attach
             }
 
-            if (this.pendingUpdates.has(panelId)) {
+            if (scheduling.pendingUpdate !== undefined) {
                 return; // Update already scheduled
             }
 
-            const handle = requestAnimationFrame(() => {
-                this.pendingUpdates.delete(panelId);
+            /**
+             * Claim the slot *before* scheduling. `requestAnimationFrame` is
+             * shimmed to run inline by some hosts (and by several suites here),
+             * in which case the callback below clears `pendingUpdate` while
+             * this call is still on the stack — assigning the handle afterwards
+             * would resurrect a slot that is already spent and block every
+             * later reposition. The sentinel is replaced by the real handle
+             * only if the frame has not already run.
+             */
+            scheduling.pendingUpdate = SCHEDULED;
 
+            const handle = requestAnimationFrame(() => {
                 const entry = this.map[panelId];
-                if (this.isDisposed || entry?.generation !== generation) {
+                if (entry) {
+                    entry.pendingUpdate = undefined;
+                }
+
+                if (
+                    this.isDisposed ||
+                    entry?.referenceContainer !== referenceContainer
+                ) {
                     return;
                 }
                 // `forceVisible` / `clip` are sticky per-panel state owned by
@@ -407,7 +412,9 @@ export class OverlayRenderContainer extends CompositeDisposable {
                 );
             });
 
-            this.pendingUpdates.set(panelId, handle);
+            if (scheduling.pendingUpdate === SCHEDULED) {
+                scheduling.pendingUpdate = handle;
+            }
         };
 
         const visibilityChanged = () => {

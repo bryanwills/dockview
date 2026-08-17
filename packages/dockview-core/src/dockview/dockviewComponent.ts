@@ -3540,6 +3540,23 @@ export class DockviewComponent
                 this._groups.delete(temporaryGroup.api.id);
                 temporaryGroupDisposables.push(
                     Disposable.from(() => {
+                        /**
+                         * Reclaim the group's own resources, never its panels.
+                         * A panel still staged here was not re-homed by the
+                         * restore — edge panels always take that path, since
+                         * `deserializeEdgeGroups` rebuilds them through the
+                         * deserializer rather than consulting `existingPanels`
+                         * — and `dispose()` on a non-empty group reaches the
+                         * consumer's `IContentRenderer.dispose()` for a panel
+                         * that is live in the new layout. Emptying the group
+                         * first leaves those panels exactly as they were before
+                         * this teardown existed.
+                         */
+                        this.movingLock(() => {
+                            for (const panel of [...temporaryGroup.panels]) {
+                                temporaryGroup.model.removePanel(panel);
+                            }
+                        });
                         record?.disposable.dispose();
                         temporaryGroup.dispose();
                     })
