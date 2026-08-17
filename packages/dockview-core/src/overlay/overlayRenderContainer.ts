@@ -305,11 +305,7 @@ export class OverlayRenderContainer extends CompositeDisposable {
                 this.pendingUpdates.delete(panelId);
 
                 const entry = this.map[panelId];
-                if (
-                    this.isDisposed ||
-                    !entry ||
-                    entry.generation !== generation
-                ) {
+                if (this.isDisposed || entry?.generation !== generation) {
                     return;
                 }
                 // `forceVisible` / `clip` are sticky per-panel state owned by
