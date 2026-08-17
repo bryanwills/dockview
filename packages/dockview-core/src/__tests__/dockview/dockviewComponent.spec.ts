@@ -2268,10 +2268,7 @@ describe('dockviewComponent', () => {
 
             let thrownOnce = false;
             const disposals = trackGroupDisposals((group) => {
-                if (
-                    !thrownOnce &&
-                    staging.stagingGroupIds.has(group.api.id)
-                ) {
+                if (!thrownOnce && staging.stagingGroupIds.has(group.api.id)) {
                     thrownOnce = true;
                     throw new Error('renderer teardown failed');
                 }
