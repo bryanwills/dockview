@@ -48,12 +48,37 @@ api.onDidMovePanel((event: MovePanelEvent) => {
 `onDidAddPanel` and `onDidRemovePanel` fire during panel moves. A panel being moved from group A to group B will trigger a remove followed by an add. Use `onDidMovePanel` if you only want to react to explicit moves.
 :::
 
-:::info
-`onDidMovePanel` covers every way a panel is relocated, including being dragged out into a new floating group or popout window. It fires once the move has settled, so `event.panel.api.location` already reports the destination.
+### Relocation paths
 
-Relocating a whole group fires the event once per panel in that group. `event.to` equals `event.from` when the group survives the move, such as a group dragged to a new grid slot or floated. Popping a group out rebuilds it in the new window, so there `event.to` is the new group.
+`onDidMovePanel` covers every way a panel is relocated. Whichever path a panel takes, three things hold by the time the event reaches you:
 
-The relocations that undo a move report too: closing a popout window returns its panels to the main window, and dropping one group onto another group's centre merges the two. Both fire the event once per panel.
+-   it fires **once the move has settled**, so `event.panel.api.location` already reports the destination and `event.to` is the panel's current group;
+-   the panel is **back in the layout**, so it appears in `api.panels` — you never see it mid-transition, belonging to neither group;
+-   the panel's `onDidLocationChange` fires **at most once** for the whole relocation, reporting where it ended up rather than once per internal step.
+
+What differs between paths is how many events you get, whether the panel changed group, and which transaction brackets the work:
+
+| Relocation | `onDidMovePanel` | `event.to` | Location after | Bracketed as |
+| --- | --- | --- | --- | --- |
+| Panel dropped into another grid group | once | new group | `grid` | `move` |
+| Panel dragged out of an edge group | once | new group | `grid` | `move` |
+| Panel extracted into a floating window | once | new group | `floating` | `float` |
+| Panel extracted into a popout window | once | new group | `popout` | `popout` |
+| Group relocated within the grid | per panel | same as `from` | `grid` | `move` |
+| Whole group floated | per panel | same as `from` | `floating` | `float` |
+| Whole group popped out | per panel | new group | `popout` | `popout` |
+| Group merged onto another group's centre | per panel | destination group | `grid` | `move` |
+| Popout window closed | per panel | reference group | `grid` | — |
+| Popout window closed, re-floating its group | per panel | same as `from` | `floating` | `float` |
+| Floating groups restored from `fromJSON` | — | — | — | `load` |
+| Panel added with `floating: true` | — | — | — | `add` |
+
+`event.to` equals `event.from` when the group itself moved and took its panels with it. It differs when the panels were rehomed into another group — popping a group out rebuilds it in the new window, merging empties one group into another, and closing a popout returns its panels to the group it left behind in the main window.
+
+The last two rows are not relocations at all: building a layout is not moving within one, so restoring from JSON and adding a panel straight into a floating window are silent.
+
+:::note
+Closing a popout window is currently the one path that reports moves without a transaction around them — a window closing is driven by the browser rather than by a call into the component, so nothing opens a bracket. If you are mirroring layout state, drive it from `onDidMovePanel` rather than from the mutation boundary alone.
 :::
 
 ## Group lifecycle
@@ -239,13 +264,12 @@ panel.api.onDidGroupChange(() => {});
 // Fires when the panel's group active state changes
 panel.api.onDidActiveGroupChange(({ isActive }) => {});
 
-// Fires when the panel's location changes (grid → floating → popout).
-// Reports the location the panel settled at, once per layout mutation, so a
-// panel extracted into a floating window reports `floating` and never the
-// group it passed through on the way. The event also fires when the location
-// `type` is unchanged but the window is not - moving a panel between two
-// floating or popout windows - so check `location` rather than assuming the
-// type differs from last time.
+// Fires when the panel's location changes (grid → floating → popout). Fires
+// once per relocation, reporting where the panel settled - see the relocation
+// table above. It also fires when the location `type` is unchanged but the
+// window is not, such as a panel moving between two floating or popout
+// windows, so read `location` rather than assuming the type differs from the
+// last time you were called.
 panel.api.onDidLocationChange(({ location }) => {});
 
 // Fires when the panel's renderer mode changes
