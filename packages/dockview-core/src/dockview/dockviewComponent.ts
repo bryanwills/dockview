@@ -4767,41 +4767,38 @@ export class DockviewComponent
      * it relocates - lands inside the bracket, matching the synchronous
      * move / float paths.
      */
-    private mutationAsync<T>(
+    private async mutationAsync<T>(
         kind: DockviewLayoutMutationKind,
         func: () => Promise<T>
     ): Promise<T> {
         const close = this.openMutation(kind);
-
-        let promise: Promise<T>;
         try {
-            promise = func();
-        } catch (err) {
+            // awaited rather than returned so `close()` runs when the work
+            // settles, not when the promise is handed back
+            return await func();
+        } finally {
             close();
-            throw err;
         }
-
-        return promise.then(
-            (value) => {
-                close();
-                return value;
-            },
-            (err) => {
-                close();
-                throw err;
-            }
-        );
     }
 
     /**
      * Open a transaction and return the function that closes it. Shared by the
      * synchronous and asynchronous brackets; the returned function must be
      * called exactly once.
+     *
+     * Both ends key off the depth counter reaching zero rather than off which
+     * bracket opened first. For synchronous nesting the two are the same thing
+     * - brackets close in the order they opened - but asynchronous transactions
+     * can *overlap* rather than nest (two `addPopoutGroup` calls in flight at
+     * once, or a restore staggering several), and there the first to open is
+     * not the last to close. Reporting on the opener would fire `didMutate`
+     * while the other transaction was still doing structural work, which is the
+     * very thing the async bracket exists to prevent. Overlapping transactions
+     * therefore report as one, tagged with the kind of the last to finish.
      */
     private openMutation(kind: DockviewLayoutMutationKind): () => void {
-        const outer = this._mutationDepth === 0;
         const origin = this._origin;
-        if (outer) {
+        if (this._mutationDepth === 0) {
             this._onWillMutateLayout.fire({ kind, origin });
         }
         this._mutationDepth++;
@@ -4810,8 +4807,6 @@ export class DockviewComponent
             this._mutationDepth--;
             if (this._mutationDepth === 0) {
                 this.flushLocationChanges();
-            }
-            if (outer) {
                 this._onDidMutateLayout.fire({ kind, origin });
             }
         };

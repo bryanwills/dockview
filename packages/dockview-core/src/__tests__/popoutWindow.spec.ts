@@ -54,15 +54,34 @@ describe('PopoutWindow', () => {
             return { popout, openSpy };
         }
 
-        test('resolves null when the window unloads before it loads', async () => {
-            const { externalWindow, fireUnload } = makeFakeExternalWindow();
+        /**
+         * A popout window fires `unload` on its initial `about:blank` document
+         * as it navigates to the configured url, *before* `load`. Measured in
+         * Chromium: opening `/popout.html` and listening on the returned window
+         * gives `["unload", "load"]` for a completely healthy popout. Treating
+         * `unload` as "the window went away" would therefore send every popout
+         * down the blocked-popup fallback.
+         */
+        test('an unload before load does not settle the open', async () => {
+            const { externalWindow, fireLoad, fireUnload } =
+                makeFakeExternalWindow();
             const { popout, openSpy } = openWindow(externalWindow);
 
             try {
                 const opened = popout.open();
-                fireUnload();
 
-                await expect(opened).resolves.toBeNull();
+                let settled = false;
+                void opened.then(() => {
+                    settled = true;
+                });
+
+                fireUnload();
+                await Promise.resolve();
+                expect(settled).toBe(false);
+
+                fireLoad();
+
+                await expect(opened).resolves.not.toBeNull();
             } finally {
                 openSpy.mockRestore();
                 popout.dispose();
@@ -84,15 +103,14 @@ describe('PopoutWindow', () => {
             }
         });
 
-        test('a load that arrives first still wins', async () => {
-            const { externalWindow, fireLoad, fireUnload } =
-                makeFakeExternalWindow();
+        test('a load that arrives first still wins over a later close', async () => {
+            const { externalWindow, fireLoad } = makeFakeExternalWindow();
             const { popout, openSpy } = openWindow(externalWindow);
 
             try {
                 const opened = popout.open();
                 fireLoad();
-                fireUnload();
+                popout.close();
 
                 await expect(opened).resolves.not.toBeNull();
             } finally {

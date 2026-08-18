@@ -3,7 +3,10 @@ import {
     DockviewLayoutMutationKind,
 } from '../../dockview/dockviewComponent';
 import { IContentRenderer } from '../../dockview/types';
-import { setupMockWindow } from '../__mocks__/mockWindow';
+import {
+    setupDeferredMockWindow,
+    setupMockWindow,
+} from '../__mocks__/mockWindow';
 
 class TestPanel implements IContentRenderer {
     element = document.createElement('div');
@@ -151,6 +154,60 @@ describe('layout mutation events', () => {
 
         expect(will).toEqual(['popout']);
         expect(did).toEqual(['popout']);
+    });
+
+    /**
+     * Asynchronous transactions can *overlap* rather than nest, so the first to
+     * open is not necessarily the last to close. Two popouts opening at once
+     * whose windows load at different times is the ordinary case - `fromJSON`
+     * staggers restored popouts deliberately. Keying the closing event off
+     * which bracket opened first fires `didMutate` while the second popout is
+     * still adding groups and moving panels, putting its work outside the
+     * transaction - exactly what holding the bracket open across the async work
+     * exists to prevent.
+     */
+    test('overlapping popouts report one transaction that closes after all the work', async () => {
+        const first = setupDeferredMockWindow();
+        const second = setupDeferredMockWindow();
+        const windows = [first, second];
+        window.open = () => windows.shift()!.window;
+
+        const sequence: string[] = [];
+        dockview.onWillMutateLayout((e) => sequence.push(`will:${e.kind}`));
+        dockview.onDidMutateLayout((e) => sequence.push(`did:${e.kind}`));
+        dockview.onDidMovePanel((e) => sequence.push(`move:${e.panel.id}`));
+
+        const p1 = dockview.addPanel({ id: 'p1', component: 'default' });
+        const p2 = dockview.addPanel({
+            id: 'p2',
+            component: 'default',
+            position: { direction: 'right' },
+        });
+        dockview.addPanel({ id: 'p3', component: 'default' });
+        sequence.length = 0;
+        will.length = 0;
+        did.length = 0;
+
+        // both in flight at once, neither awaited before the other starts
+        const opened = Promise.all([
+            dockview.addPopoutGroup(p1),
+            dockview.addPopoutGroup(p2),
+        ]);
+
+        // the first window loads while the second is still opening
+        first.load();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        second.load();
+        await opened;
+
+        expect(will).toEqual(['popout']);
+        expect(did).toEqual(['popout']);
+        expect(sequence).toEqual([
+            'will:popout',
+            'move:p1',
+            'move:p2',
+            'did:popout',
+        ]);
     });
 
     test('clear brackets one "clear" transaction', () => {
