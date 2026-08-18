@@ -580,6 +580,10 @@ export class DockviewComponent
     // Compound operations (e.g. a drag that relocates a panel) nest via the
     // depth counter and bracket as a single transaction. See `mutation()`.
     private _mutationDepth = 0;
+    // Panel location events awaiting the end of the current transaction, keyed
+    // by the panel api that owns them so a panel reports at most once per
+    // transaction. See `deferLocationChange()`.
+    private readonly _pendingLocationChanges = new Map<object, () => void>();
     // Current operation origin. Defaults to `'user'`; the DockviewApi boundary
     // flips it to `'api'` for the duration of a programmatic call via
     // `withOrigin`. Nested operations inherit the outermost origin (tracked by
@@ -1620,6 +1624,10 @@ export class DockviewComponent
         }
 
         this.addDisposables(
+            // Drop any location events still queued for a transaction that will
+            // now never close, so the pending callbacks stop retaining their
+            // panel apis.
+            Disposable.from(() => this._pendingLocationChanges.clear()),
             this.rootDropTargetContainer,
             this.floatingDropTargetContainer,
             // Safety net for a stale anchored drop overlay after an HTML5 drag.
@@ -4764,10 +4772,62 @@ export class DockviewComponent
 
         return () => {
             this._mutationDepth--;
+            if (this._mutationDepth === 0) {
+                this.flushLocationChanges();
+            }
             if (outer) {
                 this._onDidMutateLayout.fire({ kind, origin });
             }
         };
+    }
+
+    /**
+     * Coalesce a panel's `onDidLocationChange` to the end of the enclosing
+     * transaction, or fire it immediately when no transaction is in flight.
+     *
+     * Relocating a panel touches its location twice: once as it is reparented
+     * into the destination group - which, when that group has just been created
+     * for a floating or popout window, has not been told where it lives yet -
+     * and once as the group is tagged with its final location. Reporting each
+     * signal as it happens therefore leaks an intermediate `grid` location the
+     * panel was never in, at a moment when it belongs to neither group's panel
+     * list and so is missing from `api.panels`.
+     *
+     * Deferring collapses those signals into a single event carrying the
+     * settled location. Note the signals are deliberately *not* compared
+     * against the panel's previous location: a panel can move between two
+     * floating windows without its location type changing, and this event is
+     * the only signal `OverlayRenderContainer` has to re-resolve the panel's
+     * z-index against its new host window.
+     */
+    deferLocationChange(key: object, fire: () => void): void {
+        if (this._mutationDepth === 0) {
+            fire();
+            return;
+        }
+
+        this._pendingLocationChanges.set(key, fire);
+    }
+
+    /**
+     * Report every panel whose location moved during the transaction that has
+     * just closed. Each callback reads the panel's location at this point, so
+     * what it reports is where the panel ended up.
+     */
+    private flushLocationChanges(): void {
+        if (this._pendingLocationChanges.size === 0) {
+            return;
+        }
+
+        // Drain before firing: a listener is free to start another mutation,
+        // whose own location changes must queue up fresh rather than be
+        // replayed here.
+        const pending = Array.from(this._pendingLocationChanges.values());
+        this._pendingLocationChanges.clear();
+
+        for (const fire of pending) {
+            fire();
+        }
     }
 
     /**
