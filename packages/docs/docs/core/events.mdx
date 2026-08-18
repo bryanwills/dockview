@@ -37,11 +37,21 @@ api.onDidActivePanelChange((event: DockviewActivePanelChangeEvent) => {
 });
 
 // Fires when a panel moves from one group to another
-api.onDidMovePanel((event: MovePanelEvent) => {});
+api.onDidMovePanel((event: MovePanelEvent) => {
+    // event.panel: IDockviewPanel
+    // event.from: DockviewGroupPanel, the group the panel left
+    // event.to: DockviewGroupPanel, the group the panel now belongs to
+});
 ```
 
 :::info
 `onDidAddPanel` and `onDidRemovePanel` fire during panel moves. A panel being moved from group A to group B will trigger a remove followed by an add. Use `onDidMovePanel` if you only want to react to explicit moves.
+:::
+
+:::info
+`onDidMovePanel` covers every way a panel is relocated, including being dragged out into a new floating group or popout window. It fires once the move has settled, so `event.panel.api.location` already reports the destination.
+
+Relocating a whole group fires the event once per panel in that group. `event.to` equals `event.from` when the group survives the move, such as a group dragged to a new grid slot or floated. Popping a group out rebuilds it in the new window, so there `event.to` is the new group.
 :::
 
 ## Group lifecycle
