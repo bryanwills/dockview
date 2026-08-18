@@ -3542,15 +3542,16 @@ export class DockviewComponent
                     Disposable.from(() => {
                         /**
                          * Reclaim the group's own resources, never its panels.
-                         * A panel still staged here was not re-homed by the
-                         * restore — edge panels always take that path, since
-                         * `deserializeEdgeGroups` rebuilds them through the
-                         * deserializer rather than consulting `existingPanels`
-                         * — and `dispose()` on a non-empty group reaches the
-                         * consumer's `IContentRenderer.dispose()` for a panel
-                         * that is live in the new layout. Emptying the group
+                         * Staging is driven by the ids in `data.panels` while
+                         * reclaiming is driven by the group `views` that
+                         * reference them, so a panel whose state is present but
+                         * unreferenced is still staged here — and `dispose()`
+                         * on a non-empty group reaches the consumer's
+                         * `IContentRenderer.dispose()`. Emptying the group
                          * first leaves those panels exactly as they were before
-                         * this teardown existed.
+                         * this teardown existed, which also keeps this safe
+                         * against any future path that rebuilds a panel under
+                         * an id that is live in the new layout.
                          */
                         this.movingLock(() => {
                             // `panels` is the group's live array and
@@ -3747,7 +3748,12 @@ export class DockviewComponent
             this._layoutFromShell(width, height);
 
             if (data.edgeGroups) {
-                this.deserializeEdgeGroups(data.edgeGroups, panels);
+                this.deserializeEdgeGroups(
+                    data.edgeGroups,
+                    panels,
+                    existingPanels,
+                    temporaryGroups
+                );
             }
 
             this.deserializeFloatingWindows(
@@ -3847,7 +3853,13 @@ export class DockviewComponent
 
     private deserializeEdgeGroups(
         edgeGroups: SerializedEdgeGroups,
-        panels: Record<string, GroupviewPanelState>
+        panels: Record<string, GroupviewPanelState>,
+        /**
+         * The `reuseExistingPanels` staging maps, so an edge panel is reclaimed
+         * by id exactly as a grid panel is. Empty on the ordinary restore path.
+         */
+        existingPanels: Map<string, IDockviewPanel>,
+        temporaryGroups: Map<string, DockviewGroupPanel>
     ): void {
         const edgeService = assertModule(
             this._edgeGroupService,
@@ -3904,7 +3916,31 @@ export class DockviewComponent
                 const createdPanels: IDockviewPanel[] = [];
 
                 for (const panelId of views) {
-                    if (panels[panelId]) {
+                    if (!panels[panelId]) {
+                        continue;
+                    }
+
+                    /**
+                     * Reclaim a staged panel rather than rebuilding it, the
+                     * same way the grid path does. Deserializing here instead
+                     * would honour `reuseExistingPanels` everywhere except edge
+                     * groups: the live panel keeps sitting in its staging group
+                     * while a second panel is built under the same id, so the
+                     * consumer's renderer for the original is orphaned — never
+                     * disposed, and its element left inside the id-keyed
+                     * overlay entry the replacement now shares.
+                     */
+                    const existingPanel = existingPanels.get(panelId);
+                    const temporaryGroup = temporaryGroups.get(panelId);
+
+                    if (temporaryGroup && existingPanel) {
+                        this.movingLock(() => {
+                            temporaryGroup.model.removePanel(existingPanel);
+                        });
+
+                        createdPanels.push(existingPanel);
+                        existingPanel.updateFromStateModel(panels[panelId]);
+                    } else {
                         const panel = this._deserializer.fromJSON(
                             panels[panelId],
                             edgeGroup
@@ -3915,10 +3951,22 @@ export class DockviewComponent
 
                 for (const panel of createdPanels) {
                     const isActive = activeView === panel.id;
-                    edgeGroup.model.openPanel(panel, {
-                        skipSetActive: !isActive,
-                        skipSetGroupActive: true,
-                    });
+
+                    // A reclaimed panel is being re-homed, not added, so keep
+                    // its add/remove events internal — as the grid path does.
+                    if (existingPanels.has(panel.api.id)) {
+                        this.movingLock(() => {
+                            edgeGroup.model.openPanel(panel, {
+                                skipSetActive: !isActive,
+                                skipSetGroupActive: true,
+                            });
+                        });
+                    } else {
+                        edgeGroup.model.openPanel(panel, {
+                            skipSetActive: !isActive,
+                            skipSetGroupActive: true,
+                        });
+                    }
                 }
 
                 // Restore tab groups before activating a fallback panel
