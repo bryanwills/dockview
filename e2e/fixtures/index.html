@@ -462,6 +462,76 @@
                             reuseExistingPanels: true,
                         });
                     },
+                    // Restore a snapshot with `reuseExistingPanels` while
+                    // watching several panel overlays at once: one sample taken
+                    // synchronously as `fromJSON` returns, then one per frame.
+                    //
+                    // Staging moves every reused panel through a temporary
+                    // group before the layout is rebuilt. A group has a single
+                    // active panel, so sharing one staging group between
+                    // visible `always`-rendered panels deactivates all but one
+                    // of them and blanks their overlays mid-rebuild — the
+                    // symptom this samples for.
+                    reuseRestoreAndSample: (ids, frames) => {
+                        const state = dockview.toJSON();
+                        const result = {};
+                        const read = (id) => {
+                            const overlay = Array.from(
+                                document.querySelectorAll('.dv-render-overlay')
+                            ).find((el) =>
+                                (el.textContent || '').includes(id)
+                            );
+                            if (!overlay) {
+                                return null;
+                            }
+                            const r = overlay.getBoundingClientRect();
+                            const p =
+                                overlay.parentElement.getBoundingClientRect();
+                            return {
+                                visibility:
+                                    getComputedStyle(overlay).visibility,
+                                left: r.left - p.left,
+                                top: r.top - p.top,
+                                width: r.width,
+                                height: r.height,
+                                parentWidth: p.width,
+                                parentHeight: p.height,
+                            };
+                        };
+
+                        ids.forEach((id) => {
+                            result[id] = { sync: null, frames: [] };
+                        });
+
+                        const done = ids.map(
+                            (id) =>
+                                new Promise((resolve) => {
+                                    let remaining = frames;
+                                    const step = () => {
+                                        result[id].frames.push(read(id));
+                                        if (--remaining > 0) {
+                                            requestAnimationFrame(step);
+                                        } else {
+                                            resolve();
+                                        }
+                                    };
+                                    requestAnimationFrame(step);
+                                })
+                        );
+
+                        dockview.fromJSON(state, {
+                            reuseExistingPanels: true,
+                        });
+                        // Synchronously after the rebuild returns, before any
+                        // frame has run: hiding an overlay is synchronous while
+                        // showing it waits for a positioning frame, so a panel
+                        // blanked by the rebuild is already blank here.
+                        ids.forEach((id) => {
+                            result[id].sync = read(id);
+                        });
+
+                        return Promise.all(done).then(() => result);
+                    },
                     // Sample a panel overlay's rect once per animation frame,
                     // against the render container it is positioned within.
                     // A mis-positioned overlay is only wrong for a frame or

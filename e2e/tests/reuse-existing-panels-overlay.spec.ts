@@ -102,6 +102,60 @@ test.describe('reuseExistingPanels overlay geometry', () => {
     });
 
     /**
+     * The original defect this chain of fixes started from: staging every
+     * reused panel through a single temporary group. A group has one active
+     * panel, so two visible `always`-rendered panels cannot both stay active
+     * there — the loser is deactivated and its overlay hidden, and because
+     * hiding is synchronous while showing waits for a positioning frame, it
+     * stays blank across the rebuild.
+     *
+     * This is the browser counterpart of the two jsdom tests that cover the
+     * same defect (`keeps always-rendered panels active while rebuilding`,
+     * `keeps always-rendered overlays visible while rebuilding`). Those mock
+     * `getBoundingClientRect`, so they assert visibility flags against a
+     * layout that never happens; this asserts that Chromium actually keeps
+     * both panels painted.
+     *
+     * Fails on the engine before #1600 with the non-active panel's overlay
+     * `hidden` from the synchronous sample onwards.
+     */
+    test('both reused always-rendered overlays stay painted across the rebuild', async ({
+        page,
+    }) => {
+        await ready(page);
+        await page.evaluate(() => (window as any).__dv.setupReuseAlways());
+        // Let the initial layout settle so anything blank afterwards is the
+        // rebuild's doing rather than the first paint's.
+        await page.waitForTimeout(100);
+
+        const result = await page.evaluate(() =>
+            (window as any).__dv.reuseRestoreAndSample(['left', 'right'], 6)
+        );
+
+        for (const id of ['left', 'right']) {
+            const { sync, frames } = result[id];
+            const samples = [sync, ...frames];
+
+            // Every sample must exist: the overlay is reused, never recreated.
+            for (const s of samples) {
+                expect(s).not.toBeNull();
+            }
+
+            for (const s of samples) {
+                // Painted, not blanked by the staging round-trip.
+                expect(s.visibility).not.toBe('hidden');
+                // ...and painted at a real size. A visible overlay collapsed
+                // to zero is just as blank to the user as a hidden one.
+                expect(s.width).toBeGreaterThan(0);
+                expect(s.height).toBeGreaterThan(0);
+                // Each panel owns one half of a left/right split, so neither
+                // may span the render container.
+                expect(s.width).toBeLessThan(s.parentWidth * 0.9);
+            }
+        }
+    });
+
+    /**
      * Restoring a layout that *moves* a reused panel carries geometry that is
      * now wrong, so the overlay is briefly painted at its pre-rebuild position
      * before the reposition lands. That brief stale paint is intended — the
