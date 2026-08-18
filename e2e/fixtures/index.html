@@ -290,6 +290,9 @@
                             };
                         }
 
+                        panelBuilds[options.id] =
+                            (panelBuilds[options.id] || 0) + 1;
+
                         const element = document.createElement('div');
                         element.className = 'dv-test-panel';
                         element.tabIndex = 0;
@@ -316,6 +319,9 @@
                 // Last content-area dimensions each panel was laid out with,
                 // keyed by panel id (written by the panel's layout() above).
                 const panelDimensions = {};
+                // How many times a content renderer has been built for a given
+                // panel id. `reuseExistingPanels` must not build a second one.
+                const panelBuilds = {};
                 window.__dv = {
                     addPanel: (id) => {
                         panels[id] = dockview.addPanel({
@@ -900,6 +906,33 @@
                             y: 300,
                             width: 200,
                             height: 160,
+                        });
+                    },
+                    panelBuildCount: (id) => panelBuilds[id] || 0,
+                    // A centre panel plus a left edge group holding one
+                    // `always`-rendered panel. `deserializeEdgeGroups` is the
+                    // one restore path that used to rebuild rather than reclaim,
+                    // so this is the shape where `reuseExistingPanels` silently
+                    // did not reuse.
+                    setupEdgeReuse: () => {
+                        dockview.addPanel({
+                            id: 'main',
+                            component: 'default',
+                            title: 'main',
+                        });
+                        dockview.addEdgeGroup('left', {
+                            id: 'edge-left',
+                            initialSize: 220,
+                        });
+                        dockview.addPanel({
+                            id: 'sidebar',
+                            component: 'default',
+                            title: 'Sidebar',
+                            renderer: 'always',
+                            position: {
+                                referenceGroup: 'edge-left',
+                                direction: 'within',
+                            },
                         });
                     },
                     // Auto-hide edge: a center panel + a collapsed left edge

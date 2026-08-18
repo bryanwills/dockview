@@ -68,6 +68,84 @@ test.describe('reuseExistingPanels overlay geometry', () => {
     });
 
     /**
+     * `deserializeEdgeGroups` rebuilt edge panels through the deserializer
+     * instead of reclaiming the staged ones, so `reuseExistingPanels` was
+     * honoured everywhere except edge groups.
+     *
+     * The unit tests cover panel identity and renderer lifetime, which jsdom
+     * models faithfully. What it cannot show is the consequence in a rendered
+     * page: the overlay is keyed by panel id, so the replacement shared the
+     * original's overlay element and the two contents ended up stacked in it,
+     * with the orphan's DOM state stranded there.
+     *
+     * Measured before the reclaim: `panelBuildCount` is 2, the overlay holds
+     * two `.dv-test-panel` children, and the marker written before the restore
+     * reads back as `['kept', null]` — stranded on the orphan, with the live
+     * replacement blank.
+     */
+    test('a reused edge-group panel keeps its instance and its DOM state', async ({
+        page,
+    }) => {
+        await ready(page);
+        await page.evaluate(() => (window as any).__dv.setupEdgeReuse());
+        await page.waitForTimeout(100);
+
+        expect(
+            await page.evaluate(() =>
+                (window as any).__dv.panelBuildCount('sidebar')
+            )
+        ).toBe(1);
+
+        // Write state into the live panel's content, the way a real panel
+        // holds scroll position, form input or editor state. Reuse must carry
+        // it across the rebuild; rebuilding silently drops it.
+        await page.evaluate(() => {
+            const el = document.querySelector(
+                '.dv-render-overlay .dv-test-panel'
+            ) as HTMLElement;
+            el.dataset.marker = 'kept';
+        });
+
+        await page.evaluate(() =>
+            (window as any).__dv.restoreReuse((window as any).__dv.snapshot())
+        );
+        await page.waitForTimeout(100);
+
+        // No second renderer built under the same id.
+        expect(
+            await page.evaluate(() =>
+                (window as any).__dv.panelBuildCount('sidebar')
+            )
+        ).toBe(1);
+
+        const overlay = await page.evaluate(() => {
+            const el = document.querySelector(
+                '.dv-render-overlay'
+            ) as HTMLElement;
+            const contents = Array.from(
+                el.querySelectorAll('.dv-test-panel')
+            ) as HTMLElement[];
+            const r = el.getBoundingClientRect();
+            return {
+                contentCount: contents.length,
+                markers: contents.map((c) => c.dataset.marker ?? null),
+                visibility: getComputedStyle(el).visibility,
+                width: r.width,
+                height: r.height,
+            };
+        });
+
+        // One content element, not the original stacked under its replacement.
+        expect(overlay.contentCount).toBe(1);
+        // ...and it is the one carrying the state written before the restore.
+        expect(overlay.markers).toEqual(['kept']);
+        // The reclaimed panel is still painted over its edge group.
+        expect(overlay.visibility).not.toBe('hidden');
+        expect(overlay.width).toBeGreaterThan(0);
+        expect(overlay.height).toBeGreaterThan(0);
+    });
+
+    /**
      * Regression guard rather than a reproduction: an identical-layout restore
      * retains geometry that is still correct, so this passes on the unfixed
      * engine too. It pins the invariant that a reused overlay is never painted
