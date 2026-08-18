@@ -2066,6 +2066,571 @@ describe('dockviewComponent', () => {
             dockview.dispose();
         });
 
+        /**
+         * Identify the staging groups a `reuseExistingPanels` restore creates.
+         * They are all created before the layout `clear()`, so that boundary
+         * names them exactly — unlike "absent from `dockview.groups`", which
+         * also matches ordinary groups observed mid-`clear()`.
+         *
+         * Pass `onClear` to make the clear phase fail instead of running.
+         */
+        const trackStagingGroups = (
+            onClear?: () => void,
+            onCreateStagingGroup?: (index: number) => void
+        ) => {
+            const stagingGroupIds = new Set<string>();
+            let cleared = false;
+            let stagingGroupIndex = 0;
+
+            const originalClear = dockview.clear.bind(dockview);
+            const clearSpy = jest
+                .spyOn(dockview, 'clear')
+                .mockImplementation(() => {
+                    cleared = true;
+                    return (onClear ?? originalClear)();
+                });
+
+            const originalCreateGroup = dockview.createGroup.bind(dockview);
+            const createGroupSpy = jest
+                .spyOn(dockview, 'createGroup')
+                .mockImplementation((options) => {
+                    if (!cleared) {
+                        // Fires *before* the group exists, so throwing here
+                        // models `createGroup()` itself failing rather than a
+                        // half-built group being handed back.
+                        onCreateStagingGroup?.(stagingGroupIndex++);
+                    }
+                    const group = originalCreateGroup(options);
+                    if (!cleared) {
+                        stagingGroupIds.add(group.api.id);
+                    }
+                    return group;
+                });
+
+            return {
+                stagingGroupIds,
+                restore: () => {
+                    clearSpy.mockRestore();
+                    createGroupSpy.mockRestore();
+                },
+            };
+        };
+
+        /** Record every `DockviewGroupPanel.dispose()` by group id. */
+        const trackGroupDisposals = (
+            onDispose?: (group: DockviewGroupPanel) => void
+        ) => {
+            const disposed = new Set<string>();
+            // Call counts, not just membership: a staging group torn down twice
+            // would re-enter consumer `dispose()` for a group whose resources
+            // are already gone.
+            const disposeCounts = new Map<string, number>();
+            const originalDispose = DockviewGroupPanel.prototype.dispose;
+            const disposeSpy = jest
+                .spyOn(DockviewGroupPanel.prototype, 'dispose')
+                .mockImplementation(function (this: DockviewGroupPanel) {
+                    disposed.add(this.api.id);
+                    disposeCounts.set(
+                        this.api.id,
+                        (disposeCounts.get(this.api.id) ?? 0) + 1
+                    );
+                    const result = originalDispose.call(this);
+                    onDispose?.(this);
+                    return result;
+                });
+
+            return {
+                disposed,
+                disposeCounts,
+                restore: () => disposeSpy.mockRestore(),
+            };
+        };
+
+        /** Two visible `always` panels => two individual staging groups. */
+        const addTwoAlwaysRenderedPanels = () => {
+            const panel1 = dockview.addPanel({
+                id: 'panel1',
+                component: 'default',
+                renderer: 'always',
+            });
+            dockview.addPanel({
+                id: 'panel2',
+                component: 'default',
+                renderer: 'always',
+                position: {
+                    referencePanel: panel1,
+                    direction: 'right',
+                },
+            });
+        };
+
+        test('reuseExistingPanels disposes the staging groups it creates', () => {
+            // The staging groups are removed from `_groups` so the layout clear
+            // skips them, which also means nothing else will ever tear them
+            // down. Left undisposed each one leaks a ResizeObserver, an
+            // `onDidOptionsChange` subscription held by this component's
+            // emitter and a watermark — once per reused always-rendered panel.
+            dockview.layout(1000, 1000);
+
+            const panel1 = dockview.addPanel({
+                id: 'panel1',
+                component: 'default',
+                renderer: 'always',
+            });
+            dockview.addPanel({
+                id: 'panel2',
+                component: 'default',
+                renderer: 'always',
+                position: {
+                    referencePanel: panel1,
+                    direction: 'right',
+                },
+            });
+
+            const staging = trackStagingGroups();
+            const disposals = trackGroupDisposals();
+
+            dockview.fromJSON(dockview.toJSON(), {
+                reuseExistingPanels: true,
+            });
+
+            staging.restore();
+            disposals.restore();
+
+            // Two visible `always` panels => two individual staging groups.
+            expect(staging.stagingGroupIds.size).toBeGreaterThanOrEqual(2);
+
+            for (const id of staging.stagingGroupIds) {
+                expect(disposals.disposed.has(id)).toBe(true);
+            }
+        });
+
+        test('reuseExistingPanels does not dispose panels the restore leaves staged', () => {
+            // Staging is driven by the ids in `data.panels`, but reclaiming is
+            // driven by the group `views` that reference them. A panel whose
+            // state is present while nothing references it is therefore staged
+            // and never reclaimed, and is still inside its staging group when
+            // the teardown runs — the case the teardown has to empty rather
+            // than dispose through.
+            //
+            // (Edge panels used to land here too, before
+            // `deserializeEdgeGroups` learned to reclaim; they are now
+            // re-homed like any other panel.)
+            dockview.layout(1000, 1000);
+
+            dockview.addPanel({ id: 'panel1', component: 'default' });
+            // Two panels, not one: the teardown empties the staging group by
+            // iterating it, and a live-array walk would skip every other entry
+            // — which only shows up with more than one staged panel.
+            const orphaned = ['orphanA', 'orphanB'].map((id) =>
+                dockview.addPanel({ id, component: 'default' })
+            );
+
+            const state = dockview.toJSON();
+            // Keep their state in `panels` (so they are staged) but drop every
+            // reference to them from the grid (so nothing reclaims them).
+            const dropOrphans = (node: any) => {
+                if (node.type === 'leaf') {
+                    node.data.views = node.data.views.filter(
+                        (view: string) => !view.startsWith('orphan')
+                    );
+                    if (node.data.activeView?.startsWith('orphan')) {
+                        node.data.activeView = node.data.views[0];
+                    }
+                } else {
+                    node.data.forEach(dropOrphans);
+                }
+            };
+            dropOrphans(state.grid.root);
+
+            const contents = orphaned.map(
+                (panel) => panel.view.content as PanelContentPartTest
+            );
+            expect(contents.map((c) => c.isDisposed)).toEqual([false, false]);
+
+            dockview.fromJSON(state, { reuseExistingPanels: true });
+
+            // Both were genuinely staged — neither survives in the layout...
+            for (const panel of orphaned) {
+                expect(dockview.getGroupPanel(panel.id)).toBeUndefined();
+            }
+            // ...and the teardown emptied the group rather than disposing
+            // through it, so neither renderer was torn down. Leaving them
+            // undisposed is the known leak this deliberately trades for never
+            // destroying a panel that is live under the same id.
+            expect(contents.map((c) => c.isDisposed)).toEqual([false, false]);
+        });
+
+        test('reuseExistingPanels disposes the staging groups when the rebuild throws', () => {
+            // Staging runs before the deserialization `try`, so a throw from
+            // the staging moves or from `clear()` used to escape with the
+            // staging groups already created and unreclaimed.
+            dockview.layout(1000, 1000);
+
+            const panel1 = dockview.addPanel({
+                id: 'panel1',
+                component: 'default',
+                renderer: 'always',
+            });
+            dockview.addPanel({
+                id: 'panel2',
+                component: 'default',
+                renderer: 'always',
+                position: {
+                    referencePanel: panel1,
+                    direction: 'right',
+                },
+            });
+
+            const boom = new Error('clear failed');
+            const staging = trackStagingGroups(() => {
+                throw boom;
+            });
+            const disposals = trackGroupDisposals();
+
+            const state = dockview.toJSON();
+            expect(() =>
+                dockview.fromJSON(state, { reuseExistingPanels: true })
+            ).toThrow(boom);
+
+            staging.restore();
+            disposals.restore();
+
+            expect(staging.stagingGroupIds.size).toBeGreaterThanOrEqual(2);
+
+            for (const id of staging.stagingGroupIds) {
+                expect(disposals.disposed.has(id)).toBe(true);
+            }
+        });
+
+        test('a throwing staging-group dispose does not abort the rest of the teardown', () => {
+            // `dispose()` reaches consumer `IContentRenderer.dispose()`. One
+            // throwing renderer must not strand the remaining staging groups,
+            // nor replace the caller's own error.
+            dockview.layout(1000, 1000);
+
+            const panel1 = dockview.addPanel({
+                id: 'panel1',
+                component: 'default',
+                renderer: 'always',
+            });
+            dockview.addPanel({
+                id: 'panel2',
+                component: 'default',
+                renderer: 'always',
+                position: {
+                    referencePanel: panel1,
+                    direction: 'right',
+                },
+            });
+
+            const staging = trackStagingGroups();
+
+            let thrownOnce = false;
+            const disposals = trackGroupDisposals((group) => {
+                if (!thrownOnce && staging.stagingGroupIds.has(group.api.id)) {
+                    thrownOnce = true;
+                    throw new Error('renderer teardown failed');
+                }
+            });
+
+            const consoleError = jest
+                .spyOn(console, 'error')
+                .mockImplementation(() => {
+                    /* silence the expected teardown warning */
+                });
+
+            // The restore itself still succeeds.
+            expect(() =>
+                dockview.fromJSON(dockview.toJSON(), {
+                    reuseExistingPanels: true,
+                })
+            ).not.toThrow();
+
+            staging.restore();
+            disposals.restore();
+            consoleError.mockRestore();
+
+            expect(thrownOnce).toBe(true);
+
+            // Every staging group was still attempted, not just those before
+            // the one that threw.
+            expect(staging.stagingGroupIds.size).toBeGreaterThanOrEqual(2);
+            for (const id of staging.stagingGroupIds) {
+                expect(disposals.disposed.has(id)).toBe(true);
+            }
+        });
+
+        test('reuseExistingPanels disposes the staging groups built before one fails to be created', () => {
+            // `createGroup()` runs consumer code of its own — `initialize()`
+            // mounts the watermark through `createWatermarkComponent()` — so
+            // the n-th staging group can fail after n-1 are already built. The
+            // creation loop therefore has to sit inside the same guard as the
+            // staging moves and the clear; outside it, those n-1 escape
+            // unreclaimed.
+            dockview.layout(1000, 1000);
+            addTwoAlwaysRenderedPanels();
+
+            const boom = new Error('watermark failed');
+            const staging = trackStagingGroups(undefined, (index) => {
+                if (index === 1) {
+                    throw boom;
+                }
+            });
+            const disposals = trackGroupDisposals();
+
+            expect(() =>
+                dockview.fromJSON(dockview.toJSON(), {
+                    reuseExistingPanels: true,
+                })
+            ).toThrow(boom);
+
+            staging.restore();
+            disposals.restore();
+
+            // The second creation threw, so only the first group exists...
+            expect(staging.stagingGroupIds.size).toBe(1);
+            // ...and it must still have been reclaimed, exactly once.
+            for (const id of staging.stagingGroupIds) {
+                expect(disposals.disposeCounts.get(id)).toBe(1);
+            }
+        });
+
+        test('reuseExistingPanels disposes the staging groups when deserialization throws', () => {
+            // Staging and the clear succeed here, so the teardown runs through
+            // the deserialization `try`'s `finally` rather than the staging
+            // `catch` — the other of the two paths that reclaim these groups.
+            dockview.layout(1000, 1000);
+            addTwoAlwaysRenderedPanels();
+
+            const state = dockview.toJSON();
+            // A non-string group id makes `createGroupFromSerializedState`
+            // throw, after staging has already moved both panels aside.
+            (state.grid.root as any).data[0].data.id = 42;
+
+            const staging = trackStagingGroups();
+            const disposals = trackGroupDisposals();
+            const consoleError = jest
+                .spyOn(console, 'error')
+                .mockImplementation(() => {
+                    /* silence the expected deserialization warning */
+                });
+
+            expect(() =>
+                dockview.fromJSON(state, { reuseExistingPanels: true })
+            ).toThrow('dockview: group id must be of type string');
+
+            staging.restore();
+            disposals.restore();
+            consoleError.mockRestore();
+
+            expect(staging.stagingGroupIds.size).toBeGreaterThanOrEqual(2);
+            for (const id of staging.stagingGroupIds) {
+                expect(disposals.disposeCounts.get(id)).toBe(1);
+            }
+        });
+
+        test('reuseExistingPanels tears each staging group down exactly once', () => {
+            // The teardown drains its disposable list, so no staging group is
+            // reclaimed twice and none is left behind on the success path.
+            dockview.layout(1000, 1000);
+            addTwoAlwaysRenderedPanels();
+
+            const staging = trackStagingGroups();
+            const disposals = trackGroupDisposals();
+
+            dockview.fromJSON(dockview.toJSON(), {
+                reuseExistingPanels: true,
+            });
+
+            staging.restore();
+            disposals.restore();
+
+            expect(staging.stagingGroupIds.size).toBeGreaterThanOrEqual(2);
+            for (const id of staging.stagingGroupIds) {
+                expect(disposals.disposeCounts.get(id)).toBe(1);
+            }
+            // No staging group survives the restore.
+            for (const group of dockview.groups) {
+                expect(staging.stagingGroupIds.has(group.api.id)).toBe(false);
+            }
+        });
+
+        test('reuseExistingPanels reuses edge-group panels instead of rebuilding them', () => {
+            // `deserializeEdgeGroups` used to call the deserializer
+            // unconditionally, so `reuseExistingPanels` was honoured
+            // everywhere except edge groups: the live panel stayed in its
+            // staging group while a second panel was built under the same id.
+            dockview.layout(1000, 1000);
+
+            dockview.addPanel({ id: 'panel1', component: 'default' });
+            dockview.addEdgeGroup('left', {
+                id: 'edge-left',
+                initialSize: 200,
+            });
+            const edgePanel = dockview.addPanel({
+                id: 'edgePanel',
+                component: 'default',
+                position: {
+                    referenceGroup: 'edge-left',
+                    direction: 'within',
+                },
+            });
+            const renderer = edgePanel.view.content as PanelContentPartTest;
+
+            dockview.fromJSON(dockview.toJSON(), {
+                reuseExistingPanels: true,
+            });
+
+            // The very same panel instance, not a replacement under its id.
+            expect(dockview.getGroupPanel('edgePanel')).toBe(edgePanel);
+            expect(edgePanel.view.content).toBe(renderer);
+            expect(renderer.isDisposed).toBe(false);
+            // ...and it is live in the restored edge group.
+            expect(edgePanel.api.group.api.id).toBe('edge-left');
+        });
+
+        test('reuseExistingPanels does not orphan the renderer of a reused edge panel', () => {
+            // The consequence of rebuilding rather than reclaiming: the
+            // original panel is left owned by nobody. It is removed from its
+            // staging group (so the teardown cannot dispose it — that would
+            // destroy a live id) and never disposed by anything else, so the
+            // consumer's renderer survives even the component's own dispose.
+            dockview.layout(1000, 1000);
+
+            const renderers: PanelContentPartTest[] = [];
+            const component = new DockviewComponent(container, {
+                createComponent(options) {
+                    const renderer = new PanelContentPartTest(
+                        options.id,
+                        options.name
+                    );
+                    renderers.push(renderer);
+                    return renderer;
+                },
+            });
+            component.layout(1000, 1000);
+
+            component.addPanel({ id: 'panel1', component: 'default' });
+            component.addEdgeGroup('left', {
+                id: 'edge-left',
+                initialSize: 200,
+            });
+            component.addPanel({
+                id: 'edgePanel',
+                component: 'default',
+                renderer: 'always',
+                position: {
+                    referenceGroup: 'edge-left',
+                    direction: 'within',
+                },
+            });
+
+            const before = renderers.length;
+
+            component.fromJSON(component.toJSON(), {
+                reuseExistingPanels: true,
+            });
+
+            // No second renderer built for an id that already had one.
+            expect(renderers).toHaveLength(before);
+
+            // The overlay is keyed by panel id, so a rebuilt panel would leave
+            // the original's element parked alongside the replacement's.
+            const overlay = component
+                .getGroupPanel('edgePanel')!
+                .view.content.element.closest(
+                    '.dv-render-overlay'
+                ) as HTMLElement;
+            expect(overlay.childElementCount).toBe(1);
+
+            component.dispose();
+
+            // Every renderer is accounted for on teardown; none orphaned.
+            expect(renderers.map((r) => r.isDisposed)).not.toContain(false);
+        });
+
+        test('reuseExistingPanels keeps always-rendered panels active while rebuilding', () => {
+            dockview.layout(1000, 1000);
+
+            const panel1 = dockview.addPanel({
+                id: 'panel1',
+                component: 'default',
+                renderer: 'always',
+            });
+            const panel2 = dockview.addPanel({
+                id: 'panel2',
+                component: 'default',
+                renderer: 'always',
+                position: {
+                    referencePanel: panel1,
+                    direction: 'right',
+                },
+            });
+            const activePanelIdsDuringClear: string[][] = [];
+            const originalClear = dockview.clear.bind(dockview);
+            jest.spyOn(dockview, 'clear').mockImplementationOnce(() => {
+                activePanelIdsDuringClear.push(
+                    [panel1, panel2]
+                        .filter((panel) => panel.group.activePanel === panel)
+                        .map((panel) => panel.id)
+                );
+                originalClear();
+            });
+
+            dockview.fromJSON(dockview.toJSON(), {
+                reuseExistingPanels: true,
+            });
+
+            expect(activePanelIdsDuringClear).toEqual([['panel1', 'panel2']]);
+            expect(dockview.getGroupPanel(panel1.id)).toBe(panel1);
+            expect(dockview.getGroupPanel(panel2.id)).toBe(panel2);
+        });
+
+        test('reuseExistingPanels keeps always-rendered overlays visible while rebuilding', async () => {
+            dockview.layout(1000, 1000);
+
+            const panel1 = dockview.addPanel({
+                id: 'panel1',
+                component: 'default',
+                renderer: 'always',
+            });
+            const panel2 = dockview.addPanel({
+                id: 'panel2',
+                component: 'default',
+                renderer: 'always',
+                position: {
+                    referencePanel: panel1,
+                    direction: 'right',
+                },
+            });
+            await exhaustMicrotaskQueue();
+            await exhaustAnimationFrame();
+
+            const overlays = [panel1, panel2].map(
+                (panel) =>
+                    panel.view.content.element.closest(
+                        '.dv-render-overlay'
+                    ) as HTMLElement
+            );
+            const visibilityAtNextFrame: string[][] = [];
+            requestAnimationFrame(() => {
+                visibilityAtNextFrame.push(
+                    overlays.map((overlay) => overlay.style.visibility)
+                );
+            });
+
+            dockview.fromJSON(dockview.toJSON(), {
+                reuseExistingPanels: true,
+            });
+
+            expect(overlays.map((overlay) => overlay.style.visibility)).toEqual(
+                ['', '']
+            );
+            await exhaustAnimationFrame();
+            expect(visibilityAtNextFrame).toEqual([['', '']]);
+        });
+
         test('reuseExistingPanels true', () => {
             const parts: PanelContentPartTest[] = [];
 

@@ -290,6 +290,9 @@
                             };
                         }
 
+                        panelBuilds[options.id] =
+                            (panelBuilds[options.id] || 0) + 1;
+
                         const element = document.createElement('div');
                         element.className = 'dv-test-panel';
                         element.tabIndex = 0;
@@ -316,6 +319,9 @@
                 // Last content-area dimensions each panel was laid out with,
                 // keyed by panel id (written by the panel's layout() above).
                 const panelDimensions = {};
+                // How many times a content renderer has been built for a given
+                // panel id. `reuseExistingPanels` must not build a second one.
+                const panelBuilds = {};
                 window.__dv = {
                     addPanel: (id) => {
                         panels[id] = dockview.addPanel({
@@ -411,6 +417,167 @@
                     // Serialization round-trip (e.g. pinned state persistence).
                     snapshot: () => dockview.toJSON(),
                     restore: (state) => dockview.fromJSON(state),
+                    // Restore reusing the live panel instances rather than
+                    // recreating them. Reused `always`-rendered panels keep
+                    // their overlay element across the rebuild, so their
+                    // geometry has to survive the staging round-trip.
+                    restoreReuse: (state) =>
+                        dockview.fromJSON(state, { reuseExistingPanels: true }),
+                    // Two `always`-rendered panels side by side. Their content
+                    // lives in the overlay render container, positioned over
+                    // each group's content area.
+                    setupReuseAlways: () => {
+                        panels['left'] = dockview.addPanel({
+                            id: 'left',
+                            component: 'default',
+                            title: 'left',
+                            renderer: 'always',
+                        });
+                        panels['right'] = dockview.addPanel({
+                            id: 'right',
+                            component: 'default',
+                            title: 'right',
+                            renderer: 'always',
+                            position: {
+                                referencePanel: panels['left'],
+                                direction: 'right',
+                            },
+                        });
+                    },
+                    // Swap the two panels' groups, so restoring an earlier
+                    // snapshot has to move them back — the case where retained
+                    // (pre-rebuild) geometry is the *wrong* geometry.
+                    swapReuseAlways: () => {
+                        panels['left'].api.moveTo({
+                            group: panels['right'].api.group,
+                            position: 'right',
+                        });
+                    },
+                    // Add an `always`-rendered panel and immediately restore a
+                    // snapshot containing it, all in one tick — so the overlay
+                    // is attached twice before any positioning frame has run
+                    // and has no geometry to retain.
+                    addAlwaysThenReuseSameTick: (id) => {
+                        panels[id] = dockview.addPanel({
+                            id,
+                            component: 'default',
+                            title: id,
+                            renderer: 'always',
+                        });
+                        dockview.fromJSON(dockview.toJSON(), {
+                            reuseExistingPanels: true,
+                        });
+                    },
+                    // Restore a snapshot with `reuseExistingPanels` while
+                    // watching several panel overlays at once: one sample taken
+                    // synchronously as `fromJSON` returns, then one per frame.
+                    //
+                    // Staging moves every reused panel through a temporary
+                    // group before the layout is rebuilt. A group has a single
+                    // active panel, so sharing one staging group between
+                    // visible `always`-rendered panels deactivates all but one
+                    // of them and blanks their overlays mid-rebuild — the
+                    // symptom this samples for.
+                    reuseRestoreAndSample: (ids, frames) => {
+                        const state = dockview.toJSON();
+                        const result = {};
+                        const read = (id) => {
+                            const overlay = Array.from(
+                                document.querySelectorAll('.dv-render-overlay')
+                            ).find((el) =>
+                                (el.textContent || '').includes(id)
+                            );
+                            if (!overlay) {
+                                return null;
+                            }
+                            const r = overlay.getBoundingClientRect();
+                            const p =
+                                overlay.parentElement.getBoundingClientRect();
+                            return {
+                                visibility:
+                                    getComputedStyle(overlay).visibility,
+                                left: r.left - p.left,
+                                top: r.top - p.top,
+                                width: r.width,
+                                height: r.height,
+                                parentWidth: p.width,
+                                parentHeight: p.height,
+                            };
+                        };
+
+                        ids.forEach((id) => {
+                            result[id] = { sync: null, frames: [] };
+                        });
+
+                        const done = ids.map(
+                            (id) =>
+                                new Promise((resolve) => {
+                                    let remaining = frames;
+                                    const step = () => {
+                                        result[id].frames.push(read(id));
+                                        if (--remaining > 0) {
+                                            requestAnimationFrame(step);
+                                        } else {
+                                            resolve();
+                                        }
+                                    };
+                                    requestAnimationFrame(step);
+                                })
+                        );
+
+                        dockview.fromJSON(state, {
+                            reuseExistingPanels: true,
+                        });
+                        // Synchronously after the rebuild returns, before any
+                        // frame has run: hiding an overlay is synchronous while
+                        // showing it waits for a positioning frame, so a panel
+                        // blanked by the rebuild is already blank here.
+                        ids.forEach((id) => {
+                            result[id].sync = read(id);
+                        });
+
+                        return Promise.all(done).then(() => result);
+                    },
+                    // Sample a panel overlay's rect once per animation frame,
+                    // against the render container it is positioned within.
+                    // A mis-positioned overlay is only wrong for a frame or
+                    // two, so polling assertions would miss it entirely.
+                    sampleOverlayRects: (id, frames) =>
+                        new Promise((resolve) => {
+                            const samples = [];
+                            let remaining = frames;
+                            const step = () => {
+                                const overlay = Array.from(
+                                    document.querySelectorAll(
+                                        '.dv-render-overlay'
+                                    )
+                                ).find((el) =>
+                                    (el.textContent || '').includes(id)
+                                );
+                                if (overlay) {
+                                    const r = overlay.getBoundingClientRect();
+                                    const p =
+                                        overlay.parentElement.getBoundingClientRect();
+                                    samples.push({
+                                        visibility:
+                                            getComputedStyle(overlay)
+                                                .visibility,
+                                        left: r.left - p.left,
+                                        top: r.top - p.top,
+                                        width: r.width,
+                                        height: r.height,
+                                        parentWidth: p.width,
+                                        parentHeight: p.height,
+                                    });
+                                }
+                                if (--remaining > 0) {
+                                    requestAnimationFrame(step);
+                                } else {
+                                    resolve(samples);
+                                }
+                            };
+                            requestAnimationFrame(step);
+                        }),
                     // Tab titles in strip order for the first (or only) group —
                     // lets a spec assert pinned tabs sort ahead of unpinned.
                     tabTitles: () =>
@@ -739,6 +906,33 @@
                             y: 300,
                             width: 200,
                             height: 160,
+                        });
+                    },
+                    panelBuildCount: (id) => panelBuilds[id] || 0,
+                    // A centre panel plus a left edge group holding one
+                    // `always`-rendered panel. `deserializeEdgeGroups` is the
+                    // one restore path that used to rebuild rather than reclaim,
+                    // so this is the shape where `reuseExistingPanels` silently
+                    // did not reuse.
+                    setupEdgeReuse: () => {
+                        dockview.addPanel({
+                            id: 'main',
+                            component: 'default',
+                            title: 'main',
+                        });
+                        dockview.addEdgeGroup('left', {
+                            id: 'edge-left',
+                            initialSize: 220,
+                        });
+                        dockview.addPanel({
+                            id: 'sidebar',
+                            component: 'default',
+                            title: 'Sidebar',
+                            renderer: 'always',
+                            position: {
+                                referenceGroup: 'edge-left',
+                                direction: 'within',
+                            },
                         });
                     },
                     // Auto-hide edge: a center panel + a collapsed left edge
