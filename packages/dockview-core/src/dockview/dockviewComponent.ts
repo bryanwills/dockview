@@ -1837,9 +1837,10 @@ export class DockviewComponent
         itemToPopout: DockviewPanel | DockviewGroupPanel,
         options?: DockviewPopoutGroupOptionsInternal
     ): Promise<boolean> {
-        // The transaction brackets the synchronous structural change; the
-        // popout window opens asynchronously after it resolves.
-        return this.mutation('popout', () =>
+        // The popout window opens asynchronously, and the panels are only
+        // rehomed once it has, so the transaction has to stay open until the
+        // promise settles - otherwise the move it brackets lands outside it.
+        return this.mutationAsync('popout', () =>
             this._doAddPopoutGroup(itemToPopout, options)
         );
     }
@@ -4707,20 +4708,66 @@ export class DockviewComponent
      * outermost mutation.
      */
     mutation<T>(kind: DockviewLayoutMutationKind, func: () => T): T {
+        const close = this.openMutation(kind);
+        try {
+            return func();
+        } finally {
+            close();
+        }
+    }
+
+    /**
+     * `mutation()` for an operation whose work continues after the synchronous
+     * call returns. The transaction stays open until the returned promise
+     * settles, so everything the operation does - the group it adds, the panels
+     * it relocates - lands inside the bracket, matching the synchronous
+     * move / float paths.
+     */
+    private mutationAsync<T>(
+        kind: DockviewLayoutMutationKind,
+        func: () => Promise<T>
+    ): Promise<T> {
+        const close = this.openMutation(kind);
+
+        let promise: Promise<T>;
+        try {
+            promise = func();
+        } catch (err) {
+            close();
+            throw err;
+        }
+
+        return promise.then(
+            (value) => {
+                close();
+                return value;
+            },
+            (err) => {
+                close();
+                throw err;
+            }
+        );
+    }
+
+    /**
+     * Open a transaction and return the function that closes it. Shared by the
+     * synchronous and asynchronous brackets; the returned function must be
+     * called exactly once.
+     */
+    private openMutation(kind: DockviewLayoutMutationKind): () => void {
         const outer = this._mutationDepth === 0;
         const origin = this._origin;
         if (outer) {
             this._onWillMutateLayout.fire({ kind, origin });
         }
         this._mutationDepth++;
-        try {
-            return func();
-        } finally {
+
+        return () => {
             this._mutationDepth--;
             if (outer) {
                 this._onDidMutateLayout.fire({ kind, origin });
             }
-        }
+        };
     }
 
     /**

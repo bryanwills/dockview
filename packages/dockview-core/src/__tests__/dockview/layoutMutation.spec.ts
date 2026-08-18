@@ -3,6 +3,7 @@ import {
     DockviewLayoutMutationKind,
 } from '../../dockview/dockviewComponent';
 import { IContentRenderer } from '../../dockview/types';
+import { setupMockWindow } from '../__mocks__/mockWindow';
 
 class TestPanel implements IContentRenderer {
     element = document.createElement('div');
@@ -98,6 +99,58 @@ describe('layout mutation events', () => {
         dockview.addFloatingGroup(p1);
         expect(will).toEqual(['float']);
         expect(did).toEqual(['float']);
+    });
+
+    /**
+     * The popout window opens asynchronously and the panels are only rehomed
+     * once it has. The bracket therefore has to stay open across the await,
+     * otherwise a consumer using the transaction for autosave / undo sees the
+     * popout's structural work land outside it - unlike the move and float
+     * paths, whose work is entirely synchronous.
+     */
+    test('addPopoutGroup brackets the async work, not just its start', async () => {
+        window.open = () => setupMockWindow();
+
+        const sequence: string[] = [];
+        dockview.onWillMutateLayout((e) => sequence.push(`will:${e.kind}`));
+        dockview.onDidMutateLayout((e) => sequence.push(`did:${e.kind}`));
+        dockview.onDidAddGroup(() => sequence.push('addGroup'));
+        dockview.onDidMovePanel(() => sequence.push('movePanel'));
+
+        dockview.addPanel({ id: 'p1', component: 'default' });
+        const p2 = dockview.addPanel({ id: 'p2', component: 'default' });
+        sequence.length = 0;
+        will.length = 0;
+        did.length = 0;
+
+        await dockview.addPopoutGroup(p2);
+
+        expect(sequence).toEqual([
+            'will:popout',
+            'addGroup',
+            'movePanel',
+            'did:popout',
+        ]);
+        expect(will).toEqual(['popout']);
+        expect(did).toEqual(['popout']);
+    });
+
+    test('a nested mutation during the popout joins the popout transaction', async () => {
+        window.open = () => setupMockWindow();
+
+        const p1 = dockview.addPanel({ id: 'p1', component: 'default' });
+        dockview.addPanel({ id: 'p2', component: 'default' });
+
+        // popping a whole group out of a floating window removes the floating
+        // group as part of the popout, a nested mutation that must fold in
+        dockview.addFloatingGroup(p1.group);
+        will.length = 0;
+        did.length = 0;
+
+        await dockview.addPopoutGroup(p1.group);
+
+        expect(will).toEqual(['popout']);
+        expect(did).toEqual(['popout']);
     });
 
     test('clear brackets one "clear" transaction', () => {
