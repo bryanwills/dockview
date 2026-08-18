@@ -3568,31 +3568,37 @@ export class DockviewComponent
                 return temporaryGroup;
             };
 
-            for (const panel of this.panels) {
-                if (newPanels.includes(panel.api.id)) {
-                    existingPanels.set(panel.api.id, panel);
-                    let temporaryGroup: DockviewGroupPanel;
-                    if (
-                        panel.api.renderer === 'always' &&
-                        panel.api.isVisible
-                    ) {
-                        temporaryGroup = createTemporaryGroup();
-                    } else {
-                        sharedTemporaryGroup ??= createTemporaryGroup();
-                        temporaryGroup = sharedTemporaryGroup;
-                    }
-                    temporaryGroups.set(panel.api.id, temporaryGroup);
-                    stagedPanels.push({ panel, temporaryGroup });
-                }
-            }
-
             /**
              * Staging and the clear below run before the deserialization
              * `try`, so a throw here (a consumer `onDidRemovePanel` handler, a
              * renderer teardown during `clear`) would escape without reclaiming
-             * the staging groups already created above.
+             * the staging groups already created.
+             *
+             * The creation loop is inside the guard too, not just the moves and
+             * the clear: `createGroup()` reaches consumer code of its own —
+             * `initialize()` mounts the watermark through
+             * `createWatermarkComponent()` — so a throw on the n-th panel would
+             * otherwise strand the n-1 staging groups already built.
              */
             try {
+                for (const panel of this.panels) {
+                    if (newPanels.includes(panel.api.id)) {
+                        existingPanels.set(panel.api.id, panel);
+                        let temporaryGroup: DockviewGroupPanel;
+                        if (
+                            panel.api.renderer === 'always' &&
+                            panel.api.isVisible
+                        ) {
+                            temporaryGroup = createTemporaryGroup();
+                        } else {
+                            sharedTemporaryGroup ??= createTemporaryGroup();
+                            temporaryGroup = sharedTemporaryGroup;
+                        }
+                        temporaryGroups.set(panel.api.id, temporaryGroup);
+                        stagedPanels.push({ panel, temporaryGroup });
+                    }
+                }
+
                 this.movingLock(() => {
                     stagedPanels.forEach(({ panel, temporaryGroup }) => {
                         this.moveGroupOrPanel({

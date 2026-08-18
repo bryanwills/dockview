@@ -2074,9 +2074,13 @@ describe('dockviewComponent', () => {
          *
          * Pass `onClear` to make the clear phase fail instead of running.
          */
-        const trackStagingGroups = (onClear?: () => void) => {
+        const trackStagingGroups = (
+            onClear?: () => void,
+            onCreateStagingGroup?: (index: number) => void
+        ) => {
             const stagingGroupIds = new Set<string>();
             let cleared = false;
+            let stagingGroupIndex = 0;
 
             const originalClear = dockview.clear.bind(dockview);
             const clearSpy = jest
@@ -2090,6 +2094,12 @@ describe('dockviewComponent', () => {
             const createGroupSpy = jest
                 .spyOn(dockview, 'createGroup')
                 .mockImplementation((options) => {
+                    if (!cleared) {
+                        // Fires *before* the group exists, so throwing here
+                        // models `createGroup()` itself failing rather than a
+                        // half-built group being handed back.
+                        onCreateStagingGroup?.(stagingGroupIndex++);
+                    }
                     const group = originalCreateGroup(options);
                     if (!cleared) {
                         stagingGroupIds.add(group.api.id);
@@ -2111,17 +2121,47 @@ describe('dockviewComponent', () => {
             onDispose?: (group: DockviewGroupPanel) => void
         ) => {
             const disposed = new Set<string>();
+            // Call counts, not just membership: a staging group torn down twice
+            // would re-enter consumer `dispose()` for a group whose resources
+            // are already gone.
+            const disposeCounts = new Map<string, number>();
             const originalDispose = DockviewGroupPanel.prototype.dispose;
             const disposeSpy = jest
                 .spyOn(DockviewGroupPanel.prototype, 'dispose')
                 .mockImplementation(function (this: DockviewGroupPanel) {
                     disposed.add(this.api.id);
+                    disposeCounts.set(
+                        this.api.id,
+                        (disposeCounts.get(this.api.id) ?? 0) + 1
+                    );
                     const result = originalDispose.call(this);
                     onDispose?.(this);
                     return result;
                 });
 
-            return { disposed, restore: () => disposeSpy.mockRestore() };
+            return {
+                disposed,
+                disposeCounts,
+                restore: () => disposeSpy.mockRestore(),
+            };
+        };
+
+        /** Two visible `always` panels => two individual staging groups. */
+        const addTwoAlwaysRenderedPanels = () => {
+            const panel1 = dockview.addPanel({
+                id: 'panel1',
+                component: 'default',
+                renderer: 'always',
+            });
+            dockview.addPanel({
+                id: 'panel2',
+                component: 'default',
+                renderer: 'always',
+                position: {
+                    referencePanel: panel1,
+                    direction: 'right',
+                },
+            });
         };
 
         test('reuseExistingPanels disposes the staging groups it creates', () => {
@@ -2307,6 +2347,101 @@ describe('dockviewComponent', () => {
             expect(staging.stagingGroupIds.size).toBeGreaterThanOrEqual(2);
             for (const id of staging.stagingGroupIds) {
                 expect(disposals.disposed.has(id)).toBe(true);
+            }
+        });
+
+        test('reuseExistingPanels disposes the staging groups built before one fails to be created', () => {
+            // `createGroup()` runs consumer code of its own — `initialize()`
+            // mounts the watermark through `createWatermarkComponent()` — so
+            // the n-th staging group can fail after n-1 are already built. The
+            // creation loop therefore has to sit inside the same guard as the
+            // staging moves and the clear; outside it, those n-1 escape
+            // unreclaimed.
+            dockview.layout(1000, 1000);
+            addTwoAlwaysRenderedPanels();
+
+            const boom = new Error('watermark failed');
+            const staging = trackStagingGroups(undefined, (index) => {
+                if (index === 1) {
+                    throw boom;
+                }
+            });
+            const disposals = trackGroupDisposals();
+
+            expect(() =>
+                dockview.fromJSON(dockview.toJSON(), {
+                    reuseExistingPanels: true,
+                })
+            ).toThrow(boom);
+
+            staging.restore();
+            disposals.restore();
+
+            // The second creation threw, so only the first group exists...
+            expect(staging.stagingGroupIds.size).toBe(1);
+            // ...and it must still have been reclaimed, exactly once.
+            for (const id of staging.stagingGroupIds) {
+                expect(disposals.disposeCounts.get(id)).toBe(1);
+            }
+        });
+
+        test('reuseExistingPanels disposes the staging groups when deserialization throws', () => {
+            // Staging and the clear succeed here, so the teardown runs through
+            // the deserialization `try`'s `finally` rather than the staging
+            // `catch` — the other of the two paths that reclaim these groups.
+            dockview.layout(1000, 1000);
+            addTwoAlwaysRenderedPanels();
+
+            const state = dockview.toJSON();
+            // A non-string group id makes `createGroupFromSerializedState`
+            // throw, after staging has already moved both panels aside.
+            (state.grid.root as any).data[0].data.id = 42;
+
+            const staging = trackStagingGroups();
+            const disposals = trackGroupDisposals();
+            const consoleError = jest
+                .spyOn(console, 'error')
+                .mockImplementation(() => {
+                    /* silence the expected deserialization warning */
+                });
+
+            expect(() =>
+                dockview.fromJSON(state, { reuseExistingPanels: true })
+            ).toThrow('dockview: group id must be of type string');
+
+            staging.restore();
+            disposals.restore();
+            consoleError.mockRestore();
+
+            expect(staging.stagingGroupIds.size).toBeGreaterThanOrEqual(2);
+            for (const id of staging.stagingGroupIds) {
+                expect(disposals.disposeCounts.get(id)).toBe(1);
+            }
+        });
+
+        test('reuseExistingPanels tears each staging group down exactly once', () => {
+            // The teardown drains its disposable list, so no staging group is
+            // reclaimed twice and none is left behind on the success path.
+            dockview.layout(1000, 1000);
+            addTwoAlwaysRenderedPanels();
+
+            const staging = trackStagingGroups();
+            const disposals = trackGroupDisposals();
+
+            dockview.fromJSON(dockview.toJSON(), {
+                reuseExistingPanels: true,
+            });
+
+            staging.restore();
+            disposals.restore();
+
+            expect(staging.stagingGroupIds.size).toBeGreaterThanOrEqual(2);
+            for (const id of staging.stagingGroupIds) {
+                expect(disposals.disposeCounts.get(id)).toBe(1);
+            }
+            // No staging group survives the restore.
+            for (const group of dockview.groups) {
+                expect(staging.stagingGroupIds.has(group.api.id)).toBe(false);
             }
         });
 
