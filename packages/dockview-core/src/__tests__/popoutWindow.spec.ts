@@ -22,8 +22,85 @@ describe('PopoutWindow', () => {
             }
         };
 
-        return { externalWindow, externalDoc, fireLoad };
+        const fireUnload = () => {
+            for (const fn of listeners['unload'] ?? []) {
+                fn(new Event('unload'));
+            }
+        };
+
+        return { externalWindow, externalDoc, fireLoad, fireUnload };
     }
+
+    /**
+     * `open()` resolves a container on the popout's `load` event, which a
+     * window dismissed mid-load never fires. It must still settle: a caller
+     * that awaits the open - `addPopoutGroup` holds its layout transaction
+     * open until it resolves - would otherwise wait forever.
+     */
+    describe('open() always settles', () => {
+        function openWindow(externalWindow: unknown) {
+            const openSpy = jest
+                .spyOn(window, 'open')
+                .mockReturnValue(externalWindow as Window);
+
+            const popout = new PopoutWindow('target-id', 'dv-test-class', {
+                url: '/popout.html',
+                top: 0,
+                left: 0,
+                width: 100,
+                height: 100,
+            });
+
+            return { popout, openSpy };
+        }
+
+        test('resolves null when the window unloads before it loads', async () => {
+            const { externalWindow, fireUnload } = makeFakeExternalWindow();
+            const { popout, openSpy } = openWindow(externalWindow);
+
+            try {
+                const opened = popout.open();
+                fireUnload();
+
+                await expect(opened).resolves.toBeNull();
+            } finally {
+                openSpy.mockRestore();
+                popout.dispose();
+            }
+        });
+
+        test('resolves null when the window is closed before it loads', async () => {
+            const { externalWindow } = makeFakeExternalWindow();
+            const { popout, openSpy } = openWindow(externalWindow);
+
+            try {
+                const opened = popout.open();
+                popout.close();
+
+                await expect(opened).resolves.toBeNull();
+            } finally {
+                openSpy.mockRestore();
+                popout.dispose();
+            }
+        });
+
+        test('a load that arrives first still wins', async () => {
+            const { externalWindow, fireLoad, fireUnload } =
+                makeFakeExternalWindow();
+            const { popout, openSpy } = openWindow(externalWindow);
+
+            try {
+                const opened = popout.open();
+                fireLoad();
+                fireUnload();
+
+                await expect(opened).resolves.not.toBeNull();
+            } finally {
+                openSpy.mockRestore();
+                popout.dispose();
+            }
+        });
+    });
 
     function withParentStyleSheet<T>(cssText: string, fn: () => T): T {
         const styleEl = document.createElement('style');

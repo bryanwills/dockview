@@ -149,10 +149,19 @@ export class PopoutWindow extends CompositeDisposable {
         });
 
         return new Promise<HTMLElement | null>((resolve, reject) => {
-            externalWindow.addEventListener('unload', (e) => {
-                // if page fails to load before unloading
-                // this.close();
+            /**
+             * `load` is the only event that resolves this promise with a
+             * container, and a window that is dismissed while still loading
+             * never fires it. Settle with `null` - the same signal a blocked
+             * popup gives - when the window goes away instead, so a caller
+             * awaiting the open is never left with a promise that never
+             * settles. `resolve` after the fact is a no-op, so the first of
+             * these to happen wins.
+             */
+            externalWindow.addEventListener('unload', () => {
+                resolve(null);
             });
+            disposable.addDisposables(this.onWillClose(() => resolve(null)));
 
             externalWindow.addEventListener('load', () => {
                 /**
