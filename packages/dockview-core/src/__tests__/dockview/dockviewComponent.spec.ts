@@ -2533,7 +2533,7 @@ describe('dockviewComponent', () => {
             });
 
             // No second renderer built for an id that already had one.
-            expect(renderers.length).toBe(before);
+            expect(renderers).toHaveLength(before);
 
             // The overlay is keyed by panel id, so a rebuilt panel would leave
             // the original's element parked alongside the replacement's.
