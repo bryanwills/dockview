@@ -5385,6 +5385,13 @@ export class DockviewComponent
         // freshly created group so the edge slot stays anchored.
         let source: DockviewGroupPanel = from;
 
+        // The panels to report once the move has settled. Relocating a group
+        // leaves its panels in it, so they can be read off `source` at the end;
+        // merging into another group empties `from` into `to`, so they have to
+        // be captured as they are rehomed - reading `source.panels` there finds
+        // an empty group and reports nothing at all.
+        let mergedPanels: IDockviewPanel[] | undefined;
+
         if (target === 'center') {
             const activePanel = from.activePanel;
 
@@ -5419,6 +5426,8 @@ export class DockviewComponent
                     });
                 }
             });
+
+            mergedPanels = panels;
 
             for (const snapshot of tabGroupSnapshots) {
                 const newTabGroup = to.model.createTabGroup({
@@ -5609,7 +5618,7 @@ export class DockviewComponent
             }
         }
 
-        source.panels.forEach((panel) => {
+        (mergedPanels ?? source.panels).forEach((panel) => {
             this.fireDidMovePanel(panel, from);
         });
 

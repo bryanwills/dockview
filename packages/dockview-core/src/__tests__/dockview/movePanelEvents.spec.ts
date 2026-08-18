@@ -544,6 +544,89 @@ describe('onDidMovePanel', () => {
         expect(recorded).toEqual([]);
     });
 
+    /**
+     * Merging one group into another is the odd one out: every other
+     * relocation moves the group, so its panels can be read off it once the
+     * move has settled, but a merge empties the source into the destination
+     * and leaves nothing behind to report from.
+     */
+    test('fires for every panel when a group is merged into another group', () => {
+        const panel1 = dockview.addPanel({
+            id: 'panel1',
+            component: 'default',
+        });
+        const panel2 = dockview.addPanel({
+            id: 'panel2',
+            component: 'default',
+            position: { direction: 'right' },
+        });
+        const panel3 = dockview.addPanel({
+            id: 'panel3',
+            component: 'default',
+            position: { referencePanel: 'panel2' },
+        });
+
+        const group1: DockviewGroupPanel = panel1.group;
+        const group2: DockviewGroupPanel = panel2.group;
+        expect(group2.panels.length).toBe(2);
+
+        record();
+
+        dockview.moveGroup({
+            from: { group: group2 },
+            to: { group: group1, position: 'center' },
+        });
+
+        expect(recorded).toEqual([
+            {
+                panel: 'panel2',
+                from: group2.id,
+                to: group1.id,
+                location: 'grid',
+            },
+            {
+                panel: 'panel3',
+                from: group2.id,
+                to: group1.id,
+                location: 'grid',
+            },
+        ]);
+        expect(panel3.group.id).toBe(group1.id);
+        expect(dockview.groups.some((g) => g.id === group2.id)).toBe(false);
+    });
+
+    test('fires when a whole group is dropped onto another group centre', () => {
+        const panel1 = dockview.addPanel({
+            id: 'panel1',
+            component: 'default',
+        });
+        const panel2 = dockview.addPanel({
+            id: 'panel2',
+            component: 'default',
+            position: { direction: 'right' },
+        });
+
+        const group1: DockviewGroupPanel = panel1.group;
+        const group2: DockviewGroupPanel = panel2.group;
+
+        record();
+
+        // the drag-and-drop entry point: no panelId means the whole group
+        dockview.moveGroupOrPanel({
+            from: { groupId: group2.id },
+            to: { group: group1, position: 'center' },
+        });
+
+        expect(recorded).toEqual([
+            {
+                panel: 'panel2',
+                from: group2.id,
+                to: group1.id,
+                location: 'grid',
+            },
+        ]);
+    });
+
     test('reports `to` equal to `from` when the group itself is relocated', () => {
         const panel1 = dockview.addPanel({
             id: 'panel1',
