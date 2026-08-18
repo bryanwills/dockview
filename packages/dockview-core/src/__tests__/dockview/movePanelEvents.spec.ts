@@ -259,6 +259,82 @@ describe('onDidMovePanel', () => {
         expect(panel2.group.id).toBe(group.id);
     });
 
+    test('fires when a popped-out group is floated back into the host window', async () => {
+        const panel1 = dockview.addPanel({
+            id: 'panel1',
+            component: 'default',
+        });
+        const panel2 = dockview.addPanel({
+            id: 'panel2',
+            component: 'default',
+        });
+        const originalGroup = panel1.group;
+
+        await dockview.addPopoutGroup(originalGroup);
+        const popoutGroup = panel1.group;
+        expect(popoutGroup.id).not.toBe(originalGroup.id);
+
+        record();
+
+        // floating a popped-out group rehomes its panels into the reference
+        // group the popout left behind in the grid, so this is a real change
+        // of group rather than a group keeping its panels
+        dockview.addFloatingGroup(popoutGroup);
+
+        expect(panel1.api.location.type).toBe('floating');
+        expect(recorded).toEqual([
+            {
+                panel: 'panel1',
+                from: popoutGroup.id,
+                to: panel1.group.id,
+                location: 'floating',
+            },
+            {
+                panel: 'panel2',
+                from: popoutGroup.id,
+                to: panel2.group.id,
+                location: 'floating',
+            },
+        ]);
+        expect(panel1.group.id).not.toBe(popoutGroup.id);
+    });
+
+    test('fires when a panel is dragged out of an edge group', () => {
+        dockview.addEdgeGroup('left', { id: 'left-group' });
+        const edgeGroup = dockview.groups.find((g) => g.id === 'left-group')!;
+
+        const panel1 = dockview.addPanel({
+            id: 'panel1',
+            component: 'default',
+        });
+        const panel2 = dockview.addPanel({
+            id: 'panel2',
+            component: 'default',
+        });
+
+        panel2.api.moveTo({ group: edgeGroup });
+        expect(panel2.api.location.type).toBe('edge');
+
+        record();
+
+        // edge groups are structural and never move themselves, so the panel
+        // is extracted into a new grid group even though it was the only one
+        dockview.moveGroupOrPanel({
+            from: { groupId: edgeGroup.id, panelId: 'panel2' },
+            to: { group: panel1.group, position: 'right' },
+        });
+
+        expect(recorded).toEqual([
+            {
+                panel: 'panel2',
+                from: edgeGroup.id,
+                to: panel2.group.id,
+                location: 'grid',
+            },
+        ]);
+        expect(dockview.groups.some((g) => g.id === 'left-group')).toBe(true);
+    });
+
     test('does not fire when floating groups are restored from JSON', () => {
         record();
 
