@@ -3163,6 +3163,123 @@ describe('dockviewComponent', () => {
         expect(events).toHaveLength(0);
     });
 
+    /**
+     * `movePanelEvents.spec.ts` asserts the move payloads in isolation; these
+     * two record the whole interleaved event sequence, which is what makes the
+     * difference between the paths visible: floating keeps the group, popping
+     * out rebuilds it.
+     */
+    function recordEvents(component: DockviewComponent) {
+        const events: {
+            type: string;
+            id?: string;
+            from?: string;
+            to?: string;
+        }[] = [];
+
+        const disposable = new CompositeDisposable(
+            component.onDidAddGroup((group) =>
+                events.push({ type: 'ADD_GROUP', id: group.id })
+            ),
+            component.onDidRemoveGroup((group) =>
+                events.push({ type: 'REMOVE_GROUP', id: group.id })
+            ),
+            component.onDidActiveGroupChange((group) =>
+                events.push({ type: 'ACTIVE_GROUP', id: group?.id })
+            ),
+            component.onDidAddPanel((panel) =>
+                events.push({ type: 'ADD_PANEL', id: panel.id })
+            ),
+            component.onDidRemovePanel((panel) =>
+                events.push({ type: 'REMOVE_PANEL', id: panel.id })
+            ),
+            component.onDidActivePanelChange(({ panel }) =>
+                events.push({ type: 'ACTIVE_PANEL', id: panel?.id })
+            ),
+            component.onDidMovePanel(({ panel, from, to }) =>
+                events.push({
+                    type: 'MOVE_PANEL',
+                    id: panel.id,
+                    from: from.id,
+                    to: to.id,
+                })
+            )
+        );
+
+        return { events, disposable };
+    }
+
+    test('events flow: floating a whole group', () => {
+        dockview.layout(1000, 1000);
+
+        const panel1 = dockview.addPanel({
+            id: 'panel1',
+            component: 'default',
+        });
+        dockview.addPanel({ id: 'panel2', component: 'default' });
+        const group = panel1.group;
+
+        const { events, disposable } = recordEvents(dockview);
+
+        dockview.addFloatingGroup(group);
+
+        // the group is relocated intact: no group is added or removed and both
+        // panels keep it, so `to` equals `from`. The leading activation is the
+        // window being focused as it mounts, not a change of active panel.
+        expect(events).toEqual([
+            { type: 'ACTIVE_PANEL', id: 'panel2' },
+            { type: 'MOVE_PANEL', id: 'panel1', from: group.id, to: group.id },
+            { type: 'MOVE_PANEL', id: 'panel2', from: group.id, to: group.id },
+        ]);
+
+        disposable.dispose();
+    });
+
+    test('events flow: popping out a whole group', async () => {
+        window.open = () => setupMockWindow();
+        dockview.layout(1000, 1000);
+
+        const panel1 = dockview.addPanel({
+            id: 'panel1',
+            component: 'default',
+        });
+        const panel2 = dockview.addPanel({
+            id: 'panel2',
+            component: 'default',
+        });
+        const sourceGroup = panel1.group;
+
+        const { events, disposable } = recordEvents(dockview);
+
+        expect(await dockview.addPopoutGroup(sourceGroup)).toBeTruthy();
+
+        // unlike floating, the group is rebuilt inside the new window, so a
+        // group is added and both panels genuinely change group
+        const popoutGroup = panel1.group;
+        expect(popoutGroup.id).not.toBe(sourceGroup.id);
+        expect(panel2.group.id).toBe(popoutGroup.id);
+
+        expect(events).toEqual([
+            { type: 'ACTIVE_PANEL', id: 'panel2' },
+            { type: 'ADD_GROUP', id: popoutGroup.id },
+            { type: 'ACTIVE_GROUP', id: popoutGroup.id },
+            {
+                type: 'MOVE_PANEL',
+                id: 'panel1',
+                from: sourceGroup.id,
+                to: popoutGroup.id,
+            },
+            {
+                type: 'MOVE_PANEL',
+                id: 'panel2',
+                from: sourceGroup.id,
+                to: popoutGroup.id,
+            },
+        ]);
+
+        disposable.dispose();
+    });
+
     test('that removing a panel from a group reflects in the dockviewcomponent when searching for a panel', () => {
         dockview.layout(500, 500);
 
