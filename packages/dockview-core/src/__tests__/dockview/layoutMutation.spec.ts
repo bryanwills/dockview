@@ -210,6 +210,41 @@ describe('layout mutation events', () => {
         ]);
     });
 
+    /**
+     * The async bracket holds the transaction open until the work settles, so a
+     * popout that fails has to settle too - a promise that never does would
+     * leave the depth counter above zero and silently swallow the will/did pair
+     * of every mutation for the rest of the component's life. The trailing
+     * `addPanel` is the real assertion: it only brackets on its own if the
+     * failed popout put the counter back.
+     */
+    test('a blocked popout closes its transaction and leaves nothing open', async () => {
+        const openSpy = jest.spyOn(window, 'open').mockReturnValue(null);
+        const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {
+            // the blocked-popup fallback logs; keep the test output clean
+        });
+
+        try {
+            dockview.addPanel({ id: 'p1', component: 'default' });
+            const p2 = dockview.addPanel({ id: 'p2', component: 'default' });
+            will.length = 0;
+            did.length = 0;
+
+            expect(await dockview.addPopoutGroup(p2)).toBe(false);
+
+            expect(will).toEqual(['popout']);
+            expect(did).toEqual(['popout']);
+
+            dockview.addPanel({ id: 'p3', component: 'default' });
+
+            expect(will).toEqual(['popout', 'add']);
+            expect(did).toEqual(['popout', 'add']);
+        } finally {
+            errorSpy.mockRestore();
+            openSpy.mockRestore();
+        }
+    });
+
     test('clear brackets one "clear" transaction', () => {
         dockview.addPanel({ id: 'p1', component: 'default' });
         dockview.addPanel({ id: 'p2', component: 'default' });
