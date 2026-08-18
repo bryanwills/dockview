@@ -3553,7 +3553,11 @@ export class DockviewComponent
                          * this teardown existed.
                          */
                         this.movingLock(() => {
-                            for (const panel of [...temporaryGroup.panels]) {
+                            // `panels` is the group's live array and
+                            // `removePanel` splices it, so iterate a copy —
+                            // walking the live array skips every other entry
+                            // and strands panels for `dispose()` to destroy.
+                            for (const panel of temporaryGroup.panels.slice()) {
                                 temporaryGroup.model.removePanel(panel);
                             }
                         });

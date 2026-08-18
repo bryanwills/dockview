@@ -2179,26 +2179,35 @@ describe('dockviewComponent', () => {
                 id: 'edge-left',
                 initialSize: 200,
             });
-            const edgePanel = dockview.addPanel({
-                id: 'edgePanel',
-                component: 'default',
-                position: {
-                    referenceGroup: 'edge-left',
-                    direction: 'within',
-                },
-            });
+            // Two panels, not one: the teardown empties the staging group by
+            // iterating it, and a live-array walk would skip every other entry
+            // — which only shows up with more than one staged panel.
+            const edgePanels = ['edgePanelA', 'edgePanelB'].map((id) =>
+                dockview.addPanel({
+                    id,
+                    component: 'default',
+                    position: {
+                        referenceGroup: 'edge-left',
+                        direction: 'within',
+                    },
+                })
+            );
 
-            const content = edgePanel.view.content as PanelContentPartTest;
-            expect(content.isDisposed).toBe(false);
+            const contents = edgePanels.map(
+                (panel) => panel.view.content as PanelContentPartTest
+            );
+            expect(contents.map((c) => c.isDisposed)).toEqual([false, false]);
 
             dockview.fromJSON(dockview.toJSON(), {
                 reuseExistingPanels: true,
             });
 
-            // The id is live in the restored layout...
-            expect(dockview.getGroupPanel('edgePanel')).toBeDefined();
-            // ...so the renderer behind it must not have been torn down.
-            expect(content.isDisposed).toBe(false);
+            // The ids are live in the restored layout...
+            for (const panel of edgePanels) {
+                expect(dockview.getGroupPanel(panel.id)).toBeDefined();
+            }
+            // ...so the renderers behind them must not have been torn down.
+            expect(contents.map((c) => c.isDisposed)).toEqual([false, false]);
         });
 
         test('reuseExistingPanels disposes the staging groups when the rebuild throws', () => {
