@@ -2449,6 +2449,17 @@ export class DockviewComponent
         const anchorPresent = members.includes(group);
         const anchorIsSoleMember = anchorPresent && members.length === 1;
 
+        /**
+         * Popping a group out fires `onDidMovePanel` per panel, so closing the
+         * window owes the caller the same: every panel in it is rehomed, into
+         * the reference group the popout left behind or into a fresh grid slot.
+         * `movingLock` suppresses onDidAddPanel / onDidRemovePanel on these
+         * paths, so `onDidMovePanel` is the only event that can carry it. The
+         * events are deferred to the end so listeners observe the panels at
+         * their final group and location.
+         */
+        const movedPanels: MovedPanel[] = [];
+
         // On a genuine close, relocate every member that ISN'T the captured
         // anchor back to the main grid. The captured anchor (if still here) gets
         // the reference-return / re-float treatment below. Explicit removal
@@ -2466,6 +2477,13 @@ export class DockviewComponent
                     });
                     this.redockGroupToMainGrid(member);
                 });
+
+                // the group is relocated intact and keeps its panels, so `to`
+                // equals `from`, matching how a group dragged to a new grid
+                // slot reports
+                for (const panel of member.panels) {
+                    movedPanels.push({ panel, from: member });
+                }
             }
         }
 
@@ -2474,12 +2492,20 @@ export class DockviewComponent
             isGroupAddedToDom &&
             this.getPanel(referenceGroup.id)
         ) {
+            // the popout group is rebuilt on the way out and discarded here,
+            // so its panels genuinely change group
+            const rehomed = [...group.panels];
+
             this.movingLock(() =>
                 moveGroupWithoutDestroying({
                     from: group,
                     to: referenceGroup,
                 })
             );
+
+            for (const panel of rehomed) {
+                movedPanels.push({ panel, from: group });
+            }
 
             if (!referenceGroup.api.isVisible) {
                 referenceGroup.api.setVisible(true);
@@ -2510,6 +2536,7 @@ export class DockviewComponent
             // while the rest dock to the grid), so dock the anchor to the grid
             // alongside the other members once they're no longer alone.
             if (floatingBox && anchorIsSoleMember) {
+                // the re-float path reports the moves itself
                 this.addFloatingGroup(group, {
                     height: floatingBox.height,
                     width: floatingBox.width,
@@ -2528,6 +2555,11 @@ export class DockviewComponent
                     // suppress group add events since the group already exists
                     this.doAddGroup(group, [0]);
                 });
+
+                // relocated intact, so `to` equals `from`
+                for (const panel of group.panels) {
+                    movedPanels.push({ panel, from: group });
+                }
             }
             this.doSetGroupAndPanelActive(group);
         }
@@ -2536,6 +2568,10 @@ export class DockviewComponent
         // gridview (does not dispose the leaf views, whose lifecycle stays
         // with `_groups`).
         disposePopoutGridview();
+
+        for (const { panel, from } of movedPanels) {
+            this.fireDidMovePanel(panel, from);
+        }
     }
 
     addFloatingGroup(
