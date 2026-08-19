@@ -580,6 +580,10 @@ export class DockviewComponent
     // Compound operations (e.g. a drag that relocates a panel) nest via the
     // depth counter and bracket as a single transaction. See `mutation()`.
     private _mutationDepth = 0;
+    // Panel location events awaiting the end of the current transaction, keyed
+    // by the panel api that owns them so a panel reports at most once per
+    // transaction. See `deferLocationChange()`.
+    private readonly _pendingLocationChanges = new Map<object, () => void>();
     // Current operation origin. Defaults to `'user'`; the DockviewApi boundary
     // flips it to `'api'` for the duration of a programmatic call via
     // `withOrigin`. Nested operations inherit the outermost origin (tracked by
@@ -1620,6 +1624,10 @@ export class DockviewComponent
         }
 
         this.addDisposables(
+            // Drop any location events still queued for a transaction that will
+            // now never close, so the pending callbacks stop retaining their
+            // panel apis.
+            Disposable.from(() => this._pendingLocationChanges.clear()),
             this.rootDropTargetContainer,
             this.floatingDropTargetContainer,
             // Safety net for a stale anchored drop overlay after an HTML5 drag.
@@ -1837,9 +1845,10 @@ export class DockviewComponent
         itemToPopout: DockviewPanel | DockviewGroupPanel,
         options?: DockviewPopoutGroupOptionsInternal
     ): Promise<boolean> {
-        // The transaction brackets the synchronous structural change; the
-        // popout window opens asynchronously after it resolves.
-        return this.mutation('popout', () =>
+        // The popout window opens asynchronously, and the panels are only
+        // rehomed once it has, so the transaction has to stay open until the
+        // promise settles - otherwise the move it brackets lands outside it.
+        return this.mutationAsync('popout', () =>
             this._doAddPopoutGroup(itemToPopout, options)
         );
     }
@@ -2440,6 +2449,17 @@ export class DockviewComponent
         const anchorPresent = members.includes(group);
         const anchorIsSoleMember = anchorPresent && members.length === 1;
 
+        /**
+         * Popping a group out fires `onDidMovePanel` per panel, so closing the
+         * window owes the caller the same: every panel in it is rehomed, into
+         * the reference group the popout left behind or into a fresh grid slot.
+         * `movingLock` suppresses onDidAddPanel / onDidRemovePanel on these
+         * paths, so `onDidMovePanel` is the only event that can carry it. The
+         * events are deferred to the end so listeners observe the panels at
+         * their final group and location.
+         */
+        const movedPanels: MovedPanel[] = [];
+
         // On a genuine close, relocate every member that ISN'T the captured
         // anchor back to the main grid. The captured anchor (if still here) gets
         // the reference-return / re-float treatment below. Explicit removal
@@ -2457,6 +2477,13 @@ export class DockviewComponent
                     });
                     this.redockGroupToMainGrid(member);
                 });
+
+                // the group is relocated intact and keeps its panels, so `to`
+                // equals `from`, matching how a group dragged to a new grid
+                // slot reports
+                for (const panel of member.panels) {
+                    movedPanels.push({ panel, from: member });
+                }
             }
         }
 
@@ -2465,12 +2492,20 @@ export class DockviewComponent
             isGroupAddedToDom &&
             this.getPanel(referenceGroup.id)
         ) {
+            // the popout group is rebuilt on the way out and discarded here,
+            // so its panels genuinely change group
+            const rehomed = [...group.panels];
+
             this.movingLock(() =>
                 moveGroupWithoutDestroying({
                     from: group,
                     to: referenceGroup,
                 })
             );
+
+            for (const panel of rehomed) {
+                movedPanels.push({ panel, from: group });
+            }
 
             if (!referenceGroup.api.isVisible) {
                 referenceGroup.api.setVisible(true);
@@ -2501,6 +2536,7 @@ export class DockviewComponent
             // while the rest dock to the grid), so dock the anchor to the grid
             // alongside the other members once they're no longer alone.
             if (floatingBox && anchorIsSoleMember) {
+                // the re-float path reports the moves itself
                 this.addFloatingGroup(group, {
                     height: floatingBox.height,
                     width: floatingBox.width,
@@ -2519,6 +2555,11 @@ export class DockviewComponent
                     // suppress group add events since the group already exists
                     this.doAddGroup(group, [0]);
                 });
+
+                // relocated intact, so `to` equals `from`
+                for (const panel of group.panels) {
+                    movedPanels.push({ panel, from: group });
+                }
             }
             this.doSetGroupAndPanelActive(group);
         }
@@ -2527,6 +2568,10 @@ export class DockviewComponent
         // gridview (does not dispose the leaf views, whose lifecycle stays
         // with `_groups`).
         disposePopoutGridview();
+
+        for (const { panel, from } of movedPanels) {
+            this.fireDidMovePanel(panel, from);
+        }
     }
 
     addFloatingGroup(
@@ -4856,19 +4901,112 @@ export class DockviewComponent
      * outermost mutation.
      */
     mutation<T>(kind: DockviewLayoutMutationKind, func: () => T): T {
-        const outer = this._mutationDepth === 0;
-        const origin = this._origin;
-        if (outer) {
-            this._onWillMutateLayout.fire({ kind, origin });
-        }
-        this._mutationDepth++;
+        const close = this.openMutation(kind);
         try {
             return func();
         } finally {
+            close();
+        }
+    }
+
+    /**
+     * `mutation()` for an operation whose work continues after the synchronous
+     * call returns. The transaction stays open until the returned promise
+     * settles, so everything the operation does - the group it adds, the panels
+     * it relocates - lands inside the bracket, matching the synchronous
+     * move / float paths.
+     */
+    private async mutationAsync<T>(
+        kind: DockviewLayoutMutationKind,
+        func: () => Promise<T>
+    ): Promise<T> {
+        const close = this.openMutation(kind);
+        try {
+            // awaited rather than returned so `close()` runs when the work
+            // settles, not when the promise is handed back
+            return await func();
+        } finally {
+            close();
+        }
+    }
+
+    /**
+     * Open a transaction and return the function that closes it. Shared by the
+     * synchronous and asynchronous brackets; the returned function must be
+     * called exactly once.
+     *
+     * Both ends key off the depth counter reaching zero rather than off which
+     * bracket opened first. For synchronous nesting the two are the same thing
+     * - brackets close in the order they opened - but asynchronous transactions
+     * can *overlap* rather than nest (two `addPopoutGroup` calls in flight at
+     * once, or a restore staggering several), and there the first to open is
+     * not the last to close. Reporting on the opener would fire `didMutate`
+     * while the other transaction was still doing structural work, which is the
+     * very thing the async bracket exists to prevent. Overlapping transactions
+     * therefore report as one, tagged with the kind of the last to finish.
+     */
+    private openMutation(kind: DockviewLayoutMutationKind): () => void {
+        const origin = this._origin;
+        if (this._mutationDepth === 0) {
+            this._onWillMutateLayout.fire({ kind, origin });
+        }
+        this._mutationDepth++;
+
+        return () => {
             this._mutationDepth--;
-            if (outer) {
+            if (this._mutationDepth === 0) {
+                this.flushLocationChanges();
                 this._onDidMutateLayout.fire({ kind, origin });
             }
+        };
+    }
+
+    /**
+     * Coalesce a panel's `onDidLocationChange` to the end of the enclosing
+     * transaction, or fire it immediately when no transaction is in flight.
+     *
+     * Relocating a panel touches its location twice: once as it is reparented
+     * into the destination group - which, when that group has just been created
+     * for a floating or popout window, has not been told where it lives yet -
+     * and once as the group is tagged with its final location. Reporting each
+     * signal as it happens therefore leaks an intermediate `grid` location the
+     * panel was never in, at a moment when it belongs to neither group's panel
+     * list and so is missing from `api.panels`.
+     *
+     * Deferring collapses those signals into a single event carrying the
+     * settled location. Note the signals are deliberately *not* compared
+     * against the panel's previous location: a panel can move between two
+     * floating windows without its location type changing, and this event is
+     * the only signal `OverlayRenderContainer` has to re-resolve the panel's
+     * z-index against its new host window.
+     */
+    deferLocationChange(key: object, fire: () => void): void {
+        if (this._mutationDepth === 0) {
+            fire();
+            return;
+        }
+
+        this._pendingLocationChanges.set(key, fire);
+    }
+
+    /**
+     * Report every panel whose location moved during the transaction that has
+     * just closed. Each callback reads the panel's location at this point, so
+     * what it reports is where the panel ended up.
+     */
+    private flushLocationChanges(): void {
+        if (this._pendingLocationChanges.size === 0) {
+            return;
+        }
+
+        // Drain before firing: a listener is free to start another mutation,
+        // whose own location changes must queue up fresh rather than be
+        // replayed here.
+        const pending = Array.from(this._pendingLocationChanges.values());
+        this._pendingLocationChanges.clear();
+
+        for (const fire of pending) {
+            fire();
         }
     }
 
@@ -5391,6 +5529,13 @@ export class DockviewComponent
         // freshly created group so the edge slot stays anchored.
         let source: DockviewGroupPanel = from;
 
+        // The panels to report once the move has settled. Relocating a group
+        // leaves its panels in it, so they can be read off `source` at the end;
+        // merging into another group empties `from` into `to`, so they have to
+        // be captured as they are rehomed - reading `source.panels` there finds
+        // an empty group and reports nothing at all.
+        let mergedPanels: IDockviewPanel[] | undefined;
+
         if (target === 'center') {
             const activePanel = from.activePanel;
 
@@ -5425,6 +5570,8 @@ export class DockviewComponent
                     });
                 }
             });
+
+            mergedPanels = panels;
 
             for (const snapshot of tabGroupSnapshots) {
                 const newTabGroup = to.model.createTabGroup({
@@ -5615,7 +5762,7 @@ export class DockviewComponent
             }
         }
 
-        source.panels.forEach((panel) => {
+        (mergedPanels ?? source.panels).forEach((panel) => {
             this.fireDidMovePanel(panel, from);
         });
 
