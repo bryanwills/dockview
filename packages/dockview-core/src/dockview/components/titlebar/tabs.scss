@@ -511,8 +511,12 @@
     }
 
     &.dv-tab-group-chip--shifting {
-        will-change: margin-left;
-        transition: margin-left var(--dv-transition-duration, 200ms) ease-out;
+        // The gap margin runs along the strip's main axis, so a vertical
+        // header shifts the chip down rather than sideways.
+        will-change: margin-left, margin-top;
+        transition:
+            margin-left var(--dv-transition-duration, 200ms) ease-out,
+            margin-top var(--dv-transition-duration, 200ms) ease-out;
     }
 
     &.dv-tab-group-chip--dragging {
