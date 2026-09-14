@@ -98,11 +98,9 @@ export function getPopoutUrlError(
         );
     }
 
-    // Same origin is compared as scheme + host rather than through `origin`:
-    // a packaged webview serves its app from a custom scheme (`tauri://`,
-    // `app://`), which the URL spec gives an opaque origin, so `origin`
-    // reads "null" on both sides and cannot tell same-app from cross-app.
-    // For http(s) the two comparisons agree, since `host` carries the port.
+    // Scheme + host rather than `origin`, which the URL spec makes opaque for a
+    // custom scheme (`tauri://`, `app://`) and so reads "null" on both sides.
+    // For http(s) the two agree, since `host` carries the port.
     const sameOrigin =
         resolved.protocol === page.protocol && resolved.host === page.host;
 
@@ -244,12 +242,10 @@ export class PopoutWindow extends CompositeDisposable {
 
         return new Promise<HTMLElement | null>((resolve) => {
             /**
-             * A window the opener cannot script is as unusable as one that never
-             * opened, since a popout is filled by moving panel DOM into its
-             * document. A host can answer `window.open` with a window in its own
-             * JavaScript context, which throws on first touch; settle with
-             * `null`, as a blocked popup does, so the caller's fallback returns
-             * the group to the grid.
+             * A host can answer `window.open` with a window in its own
+             * JavaScript context, which throws on first touch and cannot be
+             * filled with panel DOM. Settle as a blocked popup does, so the
+             * caller's fallback returns the group to the grid.
              */
             const abandon = (err: unknown): void => {
                 this._failure = {

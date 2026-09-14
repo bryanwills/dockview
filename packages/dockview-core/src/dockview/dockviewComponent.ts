@@ -153,9 +153,8 @@ import {
 } from './tabGroupAccent';
 
 /**
- * A popout window that could not be used. An error says the most about why, so
- * it wins; a blocked window has none, and naming the usual cause is more useful
- * than naming the reason.
+ * An error says the most about why, so it wins; a blocked window has none, and
+ * its usual cause is more useful than its name.
  */
 function logFailedPopout(failure: PopoutWindowFailure): void {
     if (failure.error) {
@@ -2038,11 +2037,9 @@ export class DockviewComponent
         return (openError ? Promise.resolve(null) : _window.open())
             .then((popoutContainer) => {
                 if (_window.isDisposed) {
-                    // The window went away while it was opening: closed
-                    // mid-load, or unscriptable and abandoned. Nothing has left
-                    // the grid yet, so there is no group to return, but the
-                    // caller is still owed the reason - unless this component is
-                    // itself being disposed, which is not a failure to report.
+                    // Gone while opening, so nothing has left the grid and there
+                    // is no group to return - but the caller is owed the reason,
+                    // unless this component is itself being disposed.
                     const failure = _window.failure;
                     if (failure && !this.isDisposed) {
                         logFailedPopout(failure);
