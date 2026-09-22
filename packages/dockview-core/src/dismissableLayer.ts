@@ -1,3 +1,4 @@
+import { getComposedTarget, isEventWithin } from './dom';
 import { addDisposableListener } from './events';
 import { CompositeDisposable, IDisposable } from './lifecycle';
 
@@ -11,24 +12,6 @@ function isCoarsePrimaryInput(win: Window): boolean {
     const coarse = win.matchMedia('(pointer: coarse)').matches;
     const fine = win.matchMedia('(pointer: fine)').matches;
     return coarse && !fine;
-}
-
-/** The event's originating target. A window listener sees events from inside
- *  a shadow root retargeted to the shadow host, so read the composed path. */
-function originalTarget(event: Event): EventTarget | null {
-    return event.composedPath?.()[0] ?? event.target;
-}
-
-/** Whether the event originated within any of `elements`. The composed path
- *  crosses shadow boundaries both ways (a layer inside a shadow root, or a
- *  layer containing a web component), which `Node.contains` does not. */
-function isWithin(event: Event, elements: HTMLElement[]): boolean {
-    const path = event.composedPath?.() ?? [];
-    if (path.length > 0) {
-        return elements.some((el) => path.includes(el));
-    }
-    const target = event.target;
-    return target instanceof Node && elements.some((el) => el.contains(target));
 }
 
 export interface DismissableLayerOptions {
@@ -105,7 +88,7 @@ export function createDismissableLayer(
         if (options.isInside) {
             return options.isInside(event);
         }
-        return isWithin(event, options.elements?.() ?? []);
+        return isEventWithin(event, options.elements?.() ?? []);
     };
 
     if (escape || keys.length > 0) {
@@ -161,13 +144,13 @@ export function createDismissableLayer(
         // `focusin` bubbles to the window; capture so it's seen regardless of
         // content handlers.
         const onFocusIn = (event: FocusEvent): void => {
-            const target = originalTarget(event);
+            const target = getComposedTarget(event);
             if (!(target instanceof Element)) {
                 return;
             }
             const inside = options.isFocusInside
                 ? options.isFocusInside(target)
-                : isWithin(event, options.elements?.() ?? []);
+                : isEventWithin(event, options.elements?.() ?? []);
             if (!inside) {
                 options.onDismiss();
             }
