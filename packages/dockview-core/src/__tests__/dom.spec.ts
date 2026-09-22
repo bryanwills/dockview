@@ -4,6 +4,7 @@ import {
     disableIframePointEvents,
     disableTextSelection,
     findRelativeZIndexParent,
+    getHitTestRoot,
     isChildEntirelyVisibleWithinParent,
     isInDocument,
     onDidWindowMoveEnd,
@@ -536,5 +537,51 @@ describe('onDidWindowMoveEnd', () => {
         rafCallbacks.clear();
         pending(0);
         expect(rafCallbacks.size).toBe(0);
+    });
+});
+
+describe('getHitTestRoot', () => {
+    test('returns the document for an attached light-DOM node', () => {
+        const el = document.createElement('div');
+        document.body.appendChild(el);
+
+        expect(getHitTestRoot(el)).toBe(document);
+
+        el.remove();
+    });
+
+    test('returns the shadow root for a node inside one', () => {
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+        const shadowRoot = host.attachShadow({ mode: 'open' });
+        // jsdom lacks hit-testing on shadow roots; browsers have it.
+        Object.assign(shadowRoot, { elementsFromPoint: () => [] });
+        const el = document.createElement('div');
+        shadowRoot.appendChild(el);
+
+        expect(getHitTestRoot(el)).toBe(shadowRoot);
+
+        host.remove();
+    });
+
+    test('returns the owning document for a detached node', () => {
+        const parent = document.createElement('div');
+        const el = document.createElement('div');
+        parent.appendChild(el);
+
+        expect(getHitTestRoot(el)).toBe(document);
+        expect(getHitTestRoot(parent)).toBe(document);
+    });
+
+    test("returns a popout's own document", () => {
+        const iframe = document.createElement('iframe');
+        document.body.appendChild(iframe);
+        const otherDoc = iframe.contentDocument!;
+        const el = otherDoc.createElement('div');
+        otherDoc.body.appendChild(el);
+
+        expect(getHitTestRoot(el)).toBe(otherDoc);
+
+        iframe.remove();
     });
 });
