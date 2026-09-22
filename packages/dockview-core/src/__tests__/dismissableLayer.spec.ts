@@ -190,4 +190,35 @@ describe('createDismissableLayer', () => {
         layer.dispose();
         host.remove();
     });
+
+    test('pointerdown and focusin inside a web component within the layer count as inside', () => {
+        const host = document.createElement('div');
+        inside.appendChild(host);
+        const root = host.attachShadow({ mode: 'open' });
+        const item = document.createElement('button');
+        root.appendChild(item);
+
+        const onDismiss = jest.fn();
+        const onInsidePointerDown = jest.fn();
+        const layer = createDismissableLayer({
+            onDismiss,
+            onInsidePointerDown,
+            focusOut: true,
+            elements: () => [inside],
+        });
+
+        item.dispatchEvent(
+            new MouseEvent('pointerdown', { bubbles: true, composed: true })
+        );
+        item.dispatchEvent(
+            new FocusEvent('focusin', { bubbles: true, composed: true })
+        );
+        expect(onInsidePointerDown).toHaveBeenCalledTimes(1);
+        expect(onDismiss).not.toHaveBeenCalled();
+
+        pointerdownOn(outside);
+        expect(onDismiss).toHaveBeenCalledTimes(1);
+
+        layer.dispose();
+    });
 });
