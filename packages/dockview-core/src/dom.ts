@@ -209,16 +209,9 @@ export function quasiDefaultPrevented(event: Event): boolean {
     return (event as any)[QUASI_PREVENT_DEFAULT_KEY];
 }
 
-/** The event's originating target. A listener outside a shadow root sees
- *  events from inside it retargeted to the shadow host, so read the composed
- *  path. */
-export function getComposedTarget(event: Event): EventTarget | null {
-    return event.composedPath?.()[0] ?? event.target;
-}
-
-/** Whether the event originated within any of `elements`. The composed path
- *  crosses shadow boundaries both ways (an element inside a shadow root, or an
- *  element containing a web component), which `Node.contains` does not. */
+/** Whether the event originated within any of `elements`. Checks the
+ *  composed path, so it also holds for elements inside a shadow root, which a
+ *  window or document listener sees retargeted to the shadow host. */
 export function isEventWithin(
     event: Event,
     elements: readonly Element[]

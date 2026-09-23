@@ -4,7 +4,6 @@ import {
     disableIframePointEvents,
     disableTextSelection,
     findRelativeZIndexParent,
-    getComposedTarget,
     isChildEntirelyVisibleWithinParent,
     isEventWithin,
     isInDocument,
@@ -574,26 +573,6 @@ describe('shadow-DOM-aware event targeting', () => {
         root.appendChild(child);
         return child;
     };
-
-    test('getComposedTarget returns the node inside the shadow root, not the host', () => {
-        const child = shadowChild(outer);
-
-        const seen = observeOnWindow(child, (e) => ({
-            target: e.target,
-            composed: getComposedTarget(e),
-        }));
-
-        expect(seen.target).toBe(outer);
-        expect(seen.composed).toBe(child);
-    });
-
-    test('getComposedTarget falls back to event.target without a composed path', () => {
-        const event = new Event('pointerdown');
-        Object.defineProperty(event, 'composedPath', { value: undefined });
-        Object.defineProperty(event, 'target', { value: outer });
-
-        expect(getComposedTarget(event)).toBe(outer);
-    });
 
     test('isEventWithin: element inside a shadow root', () => {
         const container = document.createElement('div');

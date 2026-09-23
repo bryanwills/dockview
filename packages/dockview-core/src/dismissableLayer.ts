@@ -1,4 +1,4 @@
-import { getComposedTarget, isEventWithin } from './dom';
+import { isEventWithin } from './dom';
 import { addDisposableListener } from './events';
 import { CompositeDisposable, IDisposable } from './lifecycle';
 
@@ -23,8 +23,8 @@ export interface DismissableLayerOptions {
     /** A pointerdown landed *inside* the layer (not a dismissal). Use it to
      *  mark interaction (e.g. make a transient layer sticky). */
     readonly onInsidePointerDown?: (event: PointerEvent) => void;
-    /** Whether a pointer event is inside the layer. Defaults to a DOM
-     *  `contains` check against {@link DismissableLayerOptions.elements}.
+    /** Whether a pointer event is inside the layer. Defaults to checking the
+     *  event's composed path against {@link DismissableLayerOptions.elements}.
      *  Provide this for geometry-based hit testing (e.g. when the visible
      *  content is a sibling overlay stacked on top of the layer). */
     readonly isInside?: (event: PointerEvent) => boolean;
@@ -47,9 +47,11 @@ export interface DismissableLayerOptions {
      *  `false`): the "slide back on focus loss" behaviour. */
     readonly focusOut?: boolean;
     /** Whether a newly-focused element is inside the layer (for
-     *  {@link focusOut}). Defaults to a `contains` check against
-     *  {@link elements}. Provide this for geometry-based testing when the
-     *  content is a sibling overlay stacked on top of the layer. */
+     *  {@link focusOut}). Receives the `focusin` target as the listener sees
+     *  it, so focus inside a shadow root the listener is outside of arrives
+     *  as that root's host. Defaults to checking the event's composed path
+     *  against {@link elements}. Provide this for geometry-based testing
+     *  when the content is a sibling overlay stacked on top of the layer. */
     readonly isFocusInside?: (focused: Element) => boolean;
     /** Listen in the capture phase (default `false`). Use capture when the
      *  layer must see the event before content handlers stop its propagation. */
@@ -63,8 +65,8 @@ export interface DismissableLayerOptions {
  * peeks): while it lives it watches a configurable set of dismiss signals
  * (Escape / extra keys, outside-pointerdown with an optional grace window,
  * window resize, focus moving outside) and calls `onDismiss`. Inside/outside is
- * decided by an `isInside` predicate (geometry) or a `contains` check against
- * `elements`. Dispose to detach every listener.
+ * decided by an `isInside` predicate (geometry) or by checking the event's
+ * composed path against `elements`. Dispose to detach every listener.
  *
  * It owns only the *signals*, not the surface element, its position, or any
  * hover/keep-open policy, so callers keep their own element lifecycle and
@@ -142,9 +144,17 @@ export function createDismissableLayer(
 
     if (options.focusOut) {
         // `focusin` bubbles to the window; capture so it's seen regardless of
-        // content handlers.
+        // content handlers. A focus move *within* a shadow root never reaches
+        // the window (the event is retargeted to the host and its path cut
+        // there), so also listen on the shadow roots the layer lives in.
+        let lastEvent: FocusEvent | undefined;
         const onFocusIn = (event: FocusEvent): void => {
-            const target = getComposedTarget(event);
+            // Seen once by the shadow root and again by the window.
+            if (event === lastEvent) {
+                return;
+            }
+            lastEvent = event;
+            const target = event.target;
             if (!(target instanceof Element)) {
                 return;
             }
@@ -155,11 +165,26 @@ export function createDismissableLayer(
                 options.onDismiss();
             }
         };
-        win.addEventListener('focusin', onFocusIn, capture);
-        disposables.addDisposables({
-            dispose: () =>
-                win.removeEventListener('focusin', onFocusIn, capture),
-        });
+        const targets = new Set<EventTarget>([win]);
+        for (const el of options.elements?.() ?? []) {
+            const root = el.getRootNode();
+            if (
+                root.nodeType === Node.DOCUMENT_FRAGMENT_NODE &&
+                (root as ShadowRoot).host
+            ) {
+                targets.add(root);
+            }
+        }
+        for (const target of targets) {
+            disposables.addDisposables(
+                addDisposableListener(
+                    target as HTMLElement,
+                    'focusin',
+                    onFocusIn,
+                    capture
+                )
+            );
+        }
     }
 
     return disposables;

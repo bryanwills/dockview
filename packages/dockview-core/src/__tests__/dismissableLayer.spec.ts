@@ -191,6 +191,8 @@ describe('createDismissableLayer', () => {
         host.remove();
     });
 
+    // Regression guard: this layout already worked through retargeting; the
+    // composed-path check must keep it working.
     test('pointerdown and focusin inside a web component within the layer count as inside', () => {
         const host = document.createElement('div');
         inside.appendChild(host);
@@ -220,5 +222,59 @@ describe('createDismissableLayer', () => {
         expect(onDismiss).toHaveBeenCalledTimes(1);
 
         layer.dispose();
+    });
+
+    test('focusOut sees focus moving within the shadow root the layer lives in', () => {
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+        const shadowRoot = host.attachShadow({ mode: 'open' });
+        const menu = document.createElement('div');
+        const item = document.createElement('button');
+        menu.appendChild(item);
+        const elsewhere = document.createElement('button');
+        shadowRoot.append(menu, elsewhere);
+
+        const onDismiss = jest.fn();
+        const layer = createDismissableLayer({
+            onDismiss,
+            focusOut: true,
+            elements: () => [menu],
+        });
+
+        // Entering the shadow root reaches both the root and the window
+        // listeners; it must count once, as inside.
+        item.focus();
+        expect(onDismiss).not.toHaveBeenCalled();
+
+        // A move within the root never reaches the window.
+        elsewhere.focus();
+        expect(onDismiss).toHaveBeenCalledTimes(1);
+
+        layer.dispose();
+        host.remove();
+    });
+
+    test('a custom isFocusInside gets the focus target as the window sees it', () => {
+        const panel = document.createElement('div');
+        document.body.appendChild(panel);
+        const componentHost = document.createElement('div');
+        panel.appendChild(componentHost);
+        const input = document.createElement('input');
+        componentHost.attachShadow({ mode: 'open' }).appendChild(input);
+
+        const onDismiss = jest.fn();
+        const isFocusInside = jest.fn((el: Element) => panel.contains(el));
+        const layer = createDismissableLayer({
+            onDismiss,
+            focusOut: true,
+            isFocusInside,
+        });
+
+        input.focus();
+        expect(isFocusInside).toHaveBeenCalledWith(componentHost);
+        expect(onDismiss).not.toHaveBeenCalled();
+
+        layer.dispose();
+        panel.remove();
     });
 });
