@@ -371,7 +371,7 @@ describe('PopoutWindow', () => {
                 width: 100,
                 height: 100,
                 nonce: 'shadow-nonce',
-                styleRoot: shadowRoot,
+                styleRoot: () => shadowRoot,
             });
 
             const opened = popout.open();
@@ -408,7 +408,7 @@ describe('PopoutWindow', () => {
                     left: 0,
                     width: 100,
                     height: 100,
-                    styleRoot: document,
+                    styleRoot: () => document,
                 });
 
                 const opened = popout.open();

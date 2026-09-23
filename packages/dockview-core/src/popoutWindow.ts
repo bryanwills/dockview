@@ -40,9 +40,11 @@ export type PopoutWindowOptions = {
     onDidOpen?: (event: PopoutWindowEvent) => void;
     onWillClose?: (event: PopoutWindowEvent) => void;
     nonce?: CspNonceProvider;
-    /** The root node dockview is mounted in. When it is a shadow root, its
-     *  stylesheets are copied too: they are not in `document.styleSheets`. */
-    styleRoot?: Node;
+    /** The root node dockview is mounted in, read when the popout loads.
+     *  When it is a shadow root its stylesheets are copied too, since they are
+     *  not in `document.styleSheets`. Rules that target the shadow host
+     *  (`:host`, `::slotted`) match nothing in the popout. */
+    styleRoot?: () => Node;
 } & Box;
 
 /**
@@ -307,7 +309,7 @@ export class PopoutWindow extends CompositeDisposable {
                         }
                     );
 
-                    const styleRoot = this.options.styleRoot;
+                    const styleRoot = this.options.styleRoot?.();
                     if (isShadowRoot(styleRoot)) {
                         addStyles(
                             externalDocument,
