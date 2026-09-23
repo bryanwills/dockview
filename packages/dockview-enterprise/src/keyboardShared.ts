@@ -44,6 +44,41 @@ export function readKeyboardNavigation(
     return opt === true ? {} : opt;
 }
 
+/**
+ * The node an event came from, as seen from `anchor`'s tree. A listener on the
+ * document sees events from a dock mounted in a shadow root retargeted to the
+ * shadow host, so walk the composed path to the innermost node that lives in
+ * `anchor`'s root (or directly in a document, e.g. a popout). Shadow roots
+ * nested inside panel content are still retargeted to their host, as before.
+ */
+export function eventOrigin(e: Event, anchor: Node): EventTarget | null {
+    const root = anchor.getRootNode();
+    for (const node of e.composedPath?.() ?? []) {
+        if (typeof (node as Node).getRootNode !== 'function') {
+            continue;
+        }
+        const nodeRoot = (node as Node).getRootNode();
+        if (nodeRoot === root || nodeRoot.nodeType === Node.DOCUMENT_NODE) {
+            return node;
+        }
+    }
+    return e.target;
+}
+
+/**
+ * The focused element as seen from `anchor`'s tree. `document.activeElement` is
+ * the shadow host when focus is inside a shadow root, so read the anchor's root
+ * node (its shadow root, else its document) instead.
+ */
+export function activeElementOf(anchor: Node): Element | null {
+    const root = anchor.getRootNode() as Node & Partial<DocumentOrShadowRoot>;
+    if (root.activeElement !== undefined) {
+        return root.activeElement;
+    }
+    // Detached: the root is the node's own subtree, which has no focus state.
+    return anchor.ownerDocument?.activeElement ?? null;
+}
+
 /** A document-level listener to mirror across every window the dock occupies. */
 export interface DocumentListenerSpec {
     readonly type: string;

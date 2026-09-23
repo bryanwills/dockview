@@ -5,7 +5,9 @@ import type {
 import {
     type DocumentListenerSpec,
     KEYBOARD_MOVE_ATTRIBUTE,
+    activeElementOf,
     bindDocumentListeners,
+    eventOrigin,
     matchesBinding,
     readKeyboardNavigation,
 } from '../keyboardShared';
@@ -316,5 +318,83 @@ describe('keyboardShared', () => {
 
             disposable.dispose();
         });
+    });
+});
+
+describe('keyboardShared: shadow DOM helpers', () => {
+    let shadowHost: HTMLElement;
+    let shadow: ShadowRoot;
+
+    const keydownAtDocument = (
+        from: Element,
+        anchor: Node
+    ): { target: EventTarget | null; origin: EventTarget | null } => {
+        const seen = {
+            target: null as EventTarget | null,
+            origin: null as EventTarget | null,
+        };
+        const listener = (e: Event): void => {
+            seen.target = e.target;
+            seen.origin = eventOrigin(e, anchor);
+        };
+        document.addEventListener('keydown', listener, true);
+        from.dispatchEvent(
+            new KeyboardEvent('keydown', { bubbles: true, composed: true })
+        );
+        document.removeEventListener('keydown', listener, true);
+        return seen;
+    };
+
+    beforeEach(() => {
+        shadowHost = document.createElement('div');
+        document.body.appendChild(shadowHost);
+        shadow = shadowHost.attachShadow({ mode: 'open' });
+    });
+
+    afterEach(() => {
+        shadowHost.remove();
+    });
+
+    test('eventOrigin resolves a retargeted event to the node in the anchor tree', () => {
+        const anchor = document.createElement('div');
+        const button = document.createElement('button');
+        anchor.appendChild(button);
+        shadow.appendChild(anchor);
+
+        const seen = keydownAtDocument(button, anchor);
+        expect(seen.target).toBe(shadowHost); // retargeted at the document
+        expect(seen.origin).toBe(button);
+    });
+
+    test('eventOrigin keeps a shadow root nested under the anchor retargeted', () => {
+        const anchor = document.createElement('div');
+        const inner = document.createElement('div');
+        anchor.appendChild(inner);
+        shadow.appendChild(anchor);
+        const innerButton = document.createElement('button');
+        inner.attachShadow({ mode: 'open' }).appendChild(innerButton);
+
+        // The anchor's tree only sees the nested host, as with a plain target.
+        expect(keydownAtDocument(innerButton, anchor).origin).toBe(inner);
+    });
+
+    test('eventOrigin falls back to the target outside dispatch', () => {
+        const e = new Event('keydown');
+        expect(eventOrigin(e, document.body)).toBe(e.target);
+    });
+
+    test('activeElementOf reads the shadow root, not the host', () => {
+        const button = document.createElement('button');
+        shadow.appendChild(button);
+        button.focus();
+
+        expect(document.activeElement).toBe(shadowHost);
+        expect(activeElementOf(button)).toBe(button);
+        expect(activeElementOf(document.body)).toBe(shadowHost);
+    });
+
+    test('activeElementOf falls back to the document for a detached node', () => {
+        const detached = document.createElement('div');
+        expect(activeElementOf(detached)).toBe(document.activeElement);
     });
 });

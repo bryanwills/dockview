@@ -13,6 +13,7 @@ import {
 } from 'dockview';
 import {
     bindDocumentListeners,
+    eventOrigin,
     KEYBOARD_MOVE_ATTRIBUTE,
     matchesBinding,
     readKeyboardNavigation,
@@ -145,7 +146,8 @@ export class KeyboardDockingService
             return;
         }
         // Only act on events originating inside *this* dockview (any window).
-        if (!(e.target instanceof Node) || !this.host.ownsElement(e.target)) {
+        const target = eventOrigin(e, this.host.rootElement);
+        if (!(target instanceof Node) || !this.host.ownsElement(target)) {
             return;
         }
         const keymap = this._keymap;
