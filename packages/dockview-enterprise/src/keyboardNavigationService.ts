@@ -10,6 +10,7 @@ import {
 import {
     activeElementOf,
     bindDocumentListeners,
+    bindShadowRootListeners,
     eventOrigin,
     KEYBOARD_MOVE_ATTRIBUTE,
     matchesBinding,
@@ -84,6 +85,20 @@ export class KeyboardNavigationService
                 this._lastNonFloatFocus = t;
             }
         };
+        // A dock inside a shadow root: focus moves within the root never reach
+        // the document, so track them on the root too. `onFocusIn` is
+        // idempotent, so an event seen by both listeners is harmless.
+        const shadowFocus = bindShadowRootListeners(
+            () => host.rootElement,
+            [{ type: 'focusin', handler: onFocusIn, capture: true }]
+        );
+        // Focus entering the root from outside does reach the document, so
+        // re-check the root there (before any intra-root move) in case the
+        // dock was mounted into a shadow root after construction.
+        const onDocumentFocusIn = (e: Event): void => {
+            shadowFocus.sync();
+            onFocusIn(e);
+        };
 
         // Esc-from-float restore runs in the bubble phase and respects
         // defaultPrevented, so panel content that uses Esc keeps priority.
@@ -91,9 +106,10 @@ export class KeyboardNavigationService
             this._onFloatingEscape(e as KeyboardEvent);
 
         this.addDisposables(
+            shadowFocus,
             bindDocumentListeners(host, [
                 { type: 'keydown', handler: onKeyDown, capture: true },
-                { type: 'focusin', handler: onFocusIn, capture: true },
+                { type: 'focusin', handler: onDocumentFocusIn, capture: true },
                 { type: 'keydown', handler: onEscape, capture: false },
             ]),
             // When a structural change pulls focus out of the dock, return it to

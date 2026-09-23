@@ -1296,6 +1296,58 @@ describe('accessibility: dock inside a shadow root', () => {
         expect(shadow.activeElement).toBe(invoker);
     });
 
+    test('Esc returns to the last control after focus moved within the shadow root', () => {
+        // A focus move between two controls inside the same shadow root never
+        // reaches a document-level focusin listener, so it must be tracked on
+        // the shadow root itself.
+        make();
+        const float = withFloat();
+        const tab = Array.from(
+            container.querySelectorAll<HTMLElement>('.dv-tab')
+        ).find((t) => !float.contains(t)) as HTMLElement;
+        const button = Array.from(
+            container.querySelectorAll<HTMLElement>('button')
+        ).find((b) => !float.contains(b)) as HTMLElement;
+        const floatTab = float.querySelector('.dv-tab') as HTMLElement;
+
+        tab.focus(); // enters the shadow root from outside
+        button.focus(); // intra-root move
+        floatTab.focus();
+        key(floatTab, { key: 'Escape' });
+
+        expect(shadow.activeElement).toBe(button);
+    });
+
+    test('tracks intra-root focus when the dock is moved into a shadow root later', () => {
+        shadowHost = document.createElement('div');
+        document.body.appendChild(shadowHost);
+        shadow = shadowHost.attachShadow({ mode: 'open' });
+        container = document.createElement('div');
+        document.body.appendChild(container); // light DOM at construction
+        dockview = new DockviewComponent(container, {
+            createComponent: () => new ButtonPanel(),
+            keyboardNavigation: true,
+        });
+        dockview.layout(1000, 1000);
+        const float = withFloat();
+        shadow.appendChild(container);
+
+        const tab = Array.from(
+            container.querySelectorAll<HTMLElement>('.dv-tab')
+        ).find((t) => !float.contains(t)) as HTMLElement;
+        const button = Array.from(
+            container.querySelectorAll<HTMLElement>('button')
+        ).find((b) => !float.contains(b)) as HTMLElement;
+        const floatTab = float.querySelector('.dv-tab') as HTMLElement;
+
+        tab.focus();
+        button.focus();
+        floatTab.focus();
+        key(floatTab, { key: 'Escape' });
+
+        expect(shadow.activeElement).toBe(button);
+    });
+
     test('Tab wraps within a float and Shift+Tab steps back from the focused control', () => {
         make();
         const float = withFloat();
