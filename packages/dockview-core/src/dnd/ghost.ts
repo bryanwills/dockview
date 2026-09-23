@@ -18,7 +18,8 @@ export function addGhostImage(
     // move the element off-screen initially otherwise it may in some cases be rendered at (0,0) momentarily
     ghostElement.style.top = '-9999px';
 
-    // Append to the drag source's own document. Per spec a setDragImage
+    // Append to the drag source's own document (inside its shadow root, when
+    // it has one, so the styles scoped there apply). Per spec a setDragImage
     // element that is cross-document relative to the drag's DataTransfer is
     // ignored, so a drag initiated inside a popout window must use the popout
     // document, not the main one.

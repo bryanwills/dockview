@@ -98,6 +98,46 @@ describe('PointerGhost', () => {
         host.remove();
     });
 
+    test('lifts a shadow-root ghost into the top layer so host ancestors cannot offset or clip it', () => {
+        // jsdom has no Popover API; browsers do.
+        const showPopover = jest.fn();
+        HTMLElement.prototype.showPopover = showPopover;
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+        const shadowRoot = host.attachShadow({ mode: 'open' });
+        const owner = document.createElement('div');
+        shadowRoot.appendChild(owner);
+
+        try {
+            const ghostEl = document.createElement('div');
+            const ghost = new PointerGhost({
+                element: ghostEl,
+                initialX: 10,
+                initialY: 20,
+                owner,
+            });
+
+            const wrapper = ghostEl.parentElement as HTMLElement;
+            expect(wrapper.parentNode).toBe(shadowRoot);
+            expect(wrapper.popover).toBe('manual');
+            expect(showPopover).toHaveBeenCalledTimes(1);
+            expect(wrapper.style.position).toBe('fixed');
+            expect(wrapper.style.transform).toBe('translate3d(10px, 20px, 0)');
+            // The ghost itself keeps its own styles.
+            expect(ghostEl.style.position).toBe('');
+
+            ghost.update(30, 40);
+            expect(wrapper.style.transform).toBe('translate3d(30px, 40px, 0)');
+
+            ghost.dispose();
+            expect(ghostEl.isConnected).toBe(false);
+            expect(wrapper.isConnected).toBe(false);
+        } finally {
+            delete (HTMLElement.prototype as Partial<HTMLElement>).showPopover;
+            host.remove();
+        }
+    });
+
     test('dispose() removes the element and is idempotent', () => {
         const ghostEl = document.createElement('div');
         const ghost = new PointerGhost({

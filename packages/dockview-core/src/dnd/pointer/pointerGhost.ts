@@ -25,6 +25,9 @@ export interface PointerGhostOptions {
  */
 export class PointerGhost implements IDisposable {
     private readonly element: HTMLElement;
+    /** What is positioned and attached: `element`, or a top-layer wrapper
+     *  around it when the ghost lives in a shadow root. */
+    private readonly container: HTMLElement;
     private readonly offsetX: number;
     private readonly offsetY: number;
     private _disposed = false;
@@ -34,22 +37,50 @@ export class PointerGhost implements IDisposable {
         this.offsetX = opts.offsetX ?? 0;
         this.offsetY = opts.offsetY ?? 0;
 
-        // Animate via transform (see update); position:fixed for scroll-independence.
-        this.element.style.position = 'fixed';
-        this.element.style.left = '0px';
-        this.element.style.top = '0px';
-        this.element.style.pointerEvents = 'none';
-        this.element.style.zIndex = '99999';
-        this.element.style.opacity = String(opts.opacity ?? 0.8);
-        this.element.style.willChange = 'transform';
-        this.element.style.transform = `translate3d(${
-            opts.initialX - this.offsetX
-        }px, ${opts.initialY - this.offsetY}px, 0)`;
-
         const parent = opts.owner
             ? getOverlayParent(opts.owner)
             : document.body;
-        parent.appendChild(this.element);
+
+        // Inside a shadow root the ghost is laid out under the shadow host, so
+        // a transformed (or filtered, contained, ...) ancestor of the host
+        // would become its containing block, offsetting and clipping it. The
+        // top layer escapes that while keeping the shadow root's styles; the
+        // wrapper takes the popover UA styles so the ghost's own are untouched.
+        let popover: HTMLElement | undefined;
+        if (
+            parent.nodeType === Node.DOCUMENT_FRAGMENT_NODE &&
+            typeof this.element.showPopover === 'function'
+        ) {
+            popover = this.element.ownerDocument.createElement('div');
+            popover.popover = 'manual';
+            Object.assign(popover.style, {
+                inset: 'auto',
+                margin: '0',
+                padding: '0',
+                border: '0',
+                background: 'transparent',
+                color: 'inherit',
+                overflow: 'visible',
+            });
+            popover.appendChild(this.element);
+        }
+        this.container = popover ?? this.element;
+
+        // Animate via transform (see update); position:fixed for scroll-independence.
+        const style = this.container.style;
+        style.position = 'fixed';
+        style.left = '0px';
+        style.top = '0px';
+        style.pointerEvents = 'none';
+        style.zIndex = '99999';
+        style.opacity = String(opts.opacity ?? 0.8);
+        style.willChange = 'transform';
+        style.transform = `translate3d(${
+            opts.initialX - this.offsetX
+        }px, ${opts.initialY - this.offsetY}px, 0)`;
+
+        parent.appendChild(this.container);
+        popover?.showPopover();
     }
 
     update(clientX: number, clientY: number): void {
@@ -57,7 +88,7 @@ export class PointerGhost implements IDisposable {
             return;
         }
         // translate3d composites on the GPU, so there's no layout on each pointermove.
-        this.element.style.transform = `translate3d(${
+        this.container.style.transform = `translate3d(${
             clientX - this.offsetX
         }px, ${clientY - this.offsetY}px, 0)`;
     }
@@ -68,5 +99,8 @@ export class PointerGhost implements IDisposable {
         }
         this._disposed = true;
         this.element.remove();
+        if (this.container !== this.element) {
+            this.container.remove();
+        }
     }
 }
