@@ -145,7 +145,10 @@ class FocusTracker extends CompositeDisposable implements IFocusTracker {
 
         this.addDisposables(this._onDidFocus, this._onDidBlur);
 
-        let hasFocus = isAncestor(document.activeElement, <HTMLElement>element);
+        let hasFocus = isAncestor(
+            getActiveElement(element),
+            <HTMLElement>element
+        );
         let loosingFocus = false;
 
         const onFocus = () => {
@@ -171,7 +174,7 @@ class FocusTracker extends CompositeDisposable implements IFocusTracker {
 
         this._refreshStateHandler = () => {
             const currentNodeHasFocus = isAncestor(
-                document.activeElement,
+                getActiveElement(element),
                 <HTMLElement>element
             );
             if (currentNodeHasFocus !== hasFocus) {
@@ -649,4 +652,28 @@ export function resolveOpaqueBackground(element: HTMLElement): string {
         el = el.parentElement;
     }
     return '';
+}
+
+/** The focused element as seen from `node`'s own tree. Unlike
+ *  `document.activeElement`, which is the shadow host when focus is inside a
+ *  shadow root, this reaches into the root `node` lives in (and a popout's
+ *  own document), while a web component nested inside that tree still
+ *  resolves to its host there. */
+export function getActiveElement(node: Node): Element | null {
+    const root = node.getRootNode() as Partial<DocumentOrShadowRoot>;
+    return root.activeElement ?? null;
+}
+
+/** Where to append a floating element (e.g. a drag ghost) for `node`: its
+ *  shadow root when it lives in one, so styles scoped there still apply,
+ *  otherwise the body of its own document (which may be a popout's). */
+export function getOverlayParent(node: Node): ParentNode {
+    const root = node.getRootNode();
+    if (
+        root.nodeType === Node.DOCUMENT_FRAGMENT_NODE &&
+        (root as ShadowRoot).host
+    ) {
+        return root as ShadowRoot;
+    }
+    return (node.ownerDocument ?? document).body;
 }

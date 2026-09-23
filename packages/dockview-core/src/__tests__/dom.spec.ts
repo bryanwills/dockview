@@ -4,6 +4,8 @@ import {
     disableIframePointEvents,
     disableTextSelection,
     findRelativeZIndexParent,
+    getActiveElement,
+    getOverlayParent,
     isChildEntirelyVisibleWithinParent,
     isInDocument,
     onDidWindowMoveEnd,
@@ -11,6 +13,7 @@ import {
     quasiDefaultPrevented,
     quasiPreventDefault,
     resolveOpaqueBackground,
+    trackFocus,
 } from '../dom';
 
 function stubRect(
@@ -536,5 +539,94 @@ describe('onDidWindowMoveEnd', () => {
         rafCallbacks.clear();
         pending(0);
         expect(rafCallbacks.size).toBe(0);
+    });
+});
+
+describe('shadow-DOM-aware focus and overlay helpers', () => {
+    let host: HTMLElement;
+
+    beforeEach(() => {
+        host = document.createElement('div');
+        document.body.appendChild(host);
+    });
+
+    afterEach(() => {
+        host.remove();
+        jest.useRealTimers();
+    });
+
+    test('getActiveElement reaches into the shadow root the node lives in', () => {
+        const shadowRoot = host.attachShadow({ mode: 'open' });
+        const container = document.createElement('div');
+        const button = document.createElement('button');
+        container.appendChild(button);
+        shadowRoot.appendChild(container);
+
+        button.focus();
+
+        expect(document.activeElement).toBe(host);
+        expect(getActiveElement(container)).toBe(button);
+    });
+
+    test('getActiveElement resolves focus inside a nested web component to its host', () => {
+        const componentHost = document.createElement('div');
+        host.appendChild(componentHost);
+        const button = document.createElement('button');
+        componentHost.attachShadow({ mode: 'open' }).appendChild(button);
+
+        button.focus();
+
+        expect(getActiveElement(host)).toBe(componentHost);
+    });
+
+    test('getActiveElement is null for a detached node', () => {
+        expect(getActiveElement(document.createElement('div'))).toBeNull();
+    });
+
+    test('getOverlayParent is the shadow root, the body, or a popout body', () => {
+        const shadowRoot = host.attachShadow({ mode: 'open' });
+        const inShadow = document.createElement('div');
+        shadowRoot.appendChild(inShadow);
+        expect(getOverlayParent(inShadow)).toBe(shadowRoot);
+
+        const inLight = document.createElement('div');
+        document.body.appendChild(inLight);
+        expect(getOverlayParent(inLight)).toBe(document.body);
+        inLight.remove();
+
+        expect(getOverlayParent(document.createElement('div'))).toBe(
+            document.body
+        );
+
+        const otherDoc = document.implementation.createHTMLDocument('popout');
+        const inPopout = otherDoc.createElement('div');
+        otherDoc.body.appendChild(inPopout);
+        expect(getOverlayParent(inPopout)).toBe(otherDoc.body);
+    });
+
+    test('trackFocus keeps focus inside a shadow root on refreshState', () => {
+        jest.useFakeTimers();
+        const shadowRoot = host.attachShadow({ mode: 'open' });
+        const container = document.createElement('div');
+        const button = document.createElement('button');
+        container.appendChild(button);
+        shadowRoot.appendChild(container);
+
+        const tracker = trackFocus(container);
+        const onDidFocus = jest.fn();
+        const onDidBlur = jest.fn();
+        tracker.onDidFocus(onDidFocus);
+        tracker.onDidBlur(onDidBlur);
+
+        button.focus();
+        expect(onDidFocus).toHaveBeenCalledTimes(1);
+
+        // Seen from document.activeElement, focus sits on the shadow host,
+        // outside `container`; that must not read as a blur.
+        tracker.refreshState?.();
+        jest.runAllTimers();
+        expect(onDidBlur).not.toHaveBeenCalled();
+
+        tracker.dispose();
     });
 });

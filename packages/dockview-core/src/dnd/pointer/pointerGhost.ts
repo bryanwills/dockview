@@ -1,3 +1,4 @@
+import { getOverlayParent } from '../../dom';
 import { IDisposable } from '../../lifecycle';
 
 export interface PointerGhostOptions {
@@ -10,8 +11,9 @@ export interface PointerGhostOptions {
     /** Default 0.8. */
     opacity?: number;
     /**
-     * Source element whose `ownerDocument.body` hosts the ghost. Pass it for
-     * popout-window drags so the ghost renders in the popout's document.
+     * Source element whose document body (or shadow root, when it lives in
+     * one) hosts the ghost. Pass it for popout-window drags so the ghost
+     * renders in the popout's document.
      */
     owner?: Element;
 }
@@ -44,8 +46,10 @@ export class PointerGhost implements IDisposable {
             opts.initialX - this.offsetX
         }px, ${opts.initialY - this.offsetY}px, 0)`;
 
-        const ownerDocument = opts.owner?.ownerDocument ?? document;
-        ownerDocument.body.appendChild(this.element);
+        const parent = opts.owner
+            ? getOverlayParent(opts.owner)
+            : document.body;
+        parent.appendChild(this.element);
     }
 
     update(clientX: number, clientY: number): void {

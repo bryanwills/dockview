@@ -57,4 +57,28 @@ describe('ghost', () => {
 
         expect(element.parentElement).toBeNull();
     });
+
+    test('that the ghost is appended to the owner’s shadow root when it lives in one', () => {
+        const dataTransfer = <DataTransfer>(<unknown>{
+            setDragImage: jest.fn(),
+        });
+
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+        const shadowRoot = host.attachShadow({ mode: 'open' });
+        const owner = document.createElement('div');
+        shadowRoot.appendChild(owner);
+
+        const element = document.createElement('div');
+        addGhostImage(dataTransfer, element, {
+            ownerDocument: owner.ownerDocument,
+            owner,
+        });
+
+        expect(element.parentNode).toBe(shadowRoot);
+
+        jest.runAllTimers();
+        expect(element.parentNode).toBeNull();
+        host.remove();
+    });
 });

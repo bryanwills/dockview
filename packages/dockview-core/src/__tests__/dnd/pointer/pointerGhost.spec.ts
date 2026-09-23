@@ -77,6 +77,27 @@ describe('PointerGhost', () => {
         ghost.dispose();
     });
 
+    test('attaches into the owner’s shadow root when the owner lives in one', () => {
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+        const shadowRoot = host.attachShadow({ mode: 'open' });
+        const owner = document.createElement('div');
+        shadowRoot.appendChild(owner);
+
+        const ghostEl = document.createElement('div');
+        const ghost = new PointerGhost({
+            element: ghostEl,
+            initialX: 0,
+            initialY: 0,
+            owner,
+        });
+
+        expect(ghostEl.parentNode).toBe(shadowRoot);
+
+        ghost.dispose();
+        host.remove();
+    });
+
     test('dispose() removes the element and is idempotent', () => {
         const ghostEl = document.createElement('div');
         const ghost = new PointerGhost({
