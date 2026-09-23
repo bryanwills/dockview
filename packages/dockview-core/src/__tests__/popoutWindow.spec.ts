@@ -342,6 +342,92 @@ describe('PopoutWindow', () => {
         }
     });
 
+    test('copies the stylesheets of a shadow-root style root into the popout document', async () => {
+        const { externalWindow, externalDoc, fireLoad } =
+            makeFakeExternalWindow();
+        const openSpy = jest
+            .spyOn(window, 'open')
+            .mockReturnValue(externalWindow as Window);
+
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+        const shadowRoot = host.attachShadow({ mode: 'open' });
+        // jsdom implements neither on shadow roots; browsers expose both.
+        const sheet = (cssText: string) =>
+            ({
+                href: null,
+                cssRules: [{ cssText }],
+            }) as unknown as CSSStyleSheet;
+        Object.assign(shadowRoot, {
+            styleSheets: [sheet('.from-shadow-style { color: red; }')],
+            adoptedStyleSheets: [sheet('.from-adopted { color: blue; }')],
+        });
+
+        try {
+            const popout = new PopoutWindow('target-id', 'dv-test-class', {
+                url: '/popout.html',
+                top: 0,
+                left: 0,
+                width: 100,
+                height: 100,
+                nonce: 'shadow-nonce',
+                styleRoot: shadowRoot,
+            });
+
+            const opened = popout.open();
+            fireLoad();
+            await opened;
+
+            const css = Array.from(externalDoc.head.querySelectorAll('style'));
+            const texts = css.map((s) => s.textContent);
+            expect(texts).toContain('.from-shadow-style { color: red; }');
+            expect(texts).toContain('.from-adopted { color: blue; }');
+            expect(css.map((s) => s.getAttribute('nonce'))).toEqual(
+                css.map(() => 'shadow-nonce')
+            );
+
+            popout.dispose();
+        } finally {
+            openSpy.mockRestore();
+            host.remove();
+        }
+    });
+
+    test('ignores a style root that is the document', async () => {
+        const { externalWindow, externalDoc, fireLoad } =
+            makeFakeExternalWindow();
+        const openSpy = jest
+            .spyOn(window, 'open')
+            .mockReturnValue(externalWindow as Window);
+
+        try {
+            await withParentStyleSheet('.dv { color: red; }', async () => {
+                const popout = new PopoutWindow('target-id', 'dv-test-class', {
+                    url: '/popout.html',
+                    top: 0,
+                    left: 0,
+                    width: 100,
+                    height: 100,
+                    styleRoot: document,
+                });
+
+                const opened = popout.open();
+                fireLoad();
+                await opened;
+
+                // Copied once, from document.styleSheets only.
+                const texts = Array.from(
+                    externalDoc.head.querySelectorAll('style')
+                ).map((s) => s.textContent);
+                expect(texts.filter((t) => t?.includes('.dv')).length).toBe(1);
+
+                popout.dispose();
+            });
+        } finally {
+            openSpy.mockRestore();
+        }
+    });
+
     test('resolves nonce function against the popout document', async () => {
         const { externalWindow, externalDoc, fireLoad } =
             makeFakeExternalWindow();

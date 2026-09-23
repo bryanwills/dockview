@@ -1,4 +1,4 @@
-import { addStyles, CspNonceProvider } from './dom';
+import { addStyles, CspNonceProvider, isShadowRoot } from './dom';
 import { Emitter, addDisposableListener } from './events';
 import { CompositeDisposable, Disposable, IDisposable } from './lifecycle';
 import { Box } from './types';
@@ -40,6 +40,9 @@ export type PopoutWindowOptions = {
     onDidOpen?: (event: PopoutWindowEvent) => void;
     onWillClose?: (event: PopoutWindowEvent) => void;
     nonce?: CspNonceProvider;
+    /** The root node dockview is mounted in. When it is a shadow root, its
+     *  stylesheets are copied too: they are not in `document.styleSheets`. */
+    styleRoot?: Node;
 } & Box;
 
 /**
@@ -303,6 +306,20 @@ export class PopoutWindow extends CompositeDisposable {
                             nonce: this.options.nonce,
                         }
                     );
+
+                    const styleRoot = this.options.styleRoot;
+                    if (isShadowRoot(styleRoot)) {
+                        addStyles(
+                            externalDocument,
+                            [
+                                ...Array.from(styleRoot.styleSheets ?? []),
+                                ...(styleRoot.adoptedStyleSheets ?? []),
+                            ],
+                            {
+                                nonce: this.options.nonce,
+                            }
+                        );
+                    }
 
                     /**
                      * beforeunload must be registered after load for reasons I could not determine

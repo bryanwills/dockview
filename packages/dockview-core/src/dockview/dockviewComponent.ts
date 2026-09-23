@@ -2016,6 +2016,7 @@ export class DockviewComponent
                     this._onWillClosePopoutWindow.fire(event);
                 },
                 nonce: this.options?.nonce,
+                styleRoot: this.element.getRootNode(),
             }
         );
 

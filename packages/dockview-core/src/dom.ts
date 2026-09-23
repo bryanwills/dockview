@@ -219,7 +219,7 @@ export interface AddStylesOptions {
 
 export function addStyles(
     document: Document,
-    styleSheetList: StyleSheetList,
+    styleSheetList: StyleSheetList | readonly CSSStyleSheet[],
     options: AddStylesOptions = {}
 ) {
     const styleSheets = Array.from(styleSheetList);
@@ -301,6 +301,18 @@ export function isInDocument(element: Element): boolean {
     }
 
     return false;
+}
+
+/** Duck-typed so it holds for a shadow root from another window's realm. */
+export function isShadowRoot(
+    node: Node | null | undefined
+): node is ShadowRoot {
+    return (
+        !!node &&
+        node.nodeType === Node.DOCUMENT_FRAGMENT_NODE &&
+        'host' in node &&
+        !!(node as ShadowRoot).host
+    );
 }
 
 export function addTestId(element: HTMLElement, id: string): void {

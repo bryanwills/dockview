@@ -6,6 +6,7 @@ import {
     findRelativeZIndexParent,
     isChildEntirelyVisibleWithinParent,
     isInDocument,
+    isShadowRoot,
     onDidWindowMoveEnd,
     prefersReducedMotion,
     quasiDefaultPrevented,
@@ -536,5 +537,19 @@ describe('onDidWindowMoveEnd', () => {
         rafCallbacks.clear();
         pending(0);
         expect(rafCallbacks.size).toBe(0);
+    });
+});
+
+describe('isShadowRoot', () => {
+    test('true only for a shadow root', () => {
+        const host = document.createElement('div');
+        const shadowRoot = host.attachShadow({ mode: 'open' });
+
+        expect(isShadowRoot(shadowRoot)).toBe(true);
+        expect(isShadowRoot(document)).toBe(false);
+        expect(isShadowRoot(host)).toBe(false);
+        expect(isShadowRoot(document.createDocumentFragment())).toBe(false);
+        expect(isShadowRoot(null)).toBe(false);
+        expect(isShadowRoot(undefined)).toBe(false);
     });
 });
