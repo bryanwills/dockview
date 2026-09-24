@@ -224,24 +224,15 @@ export function isEventWithin(
     return target instanceof Node && elements.some((el) => el.contains(target));
 }
 
-/** The shadow root `node` is, or `undefined` when it is not one. A shadow
- *  root is the only document fragment with a `host`. */
-export function asShadowRoot(node: Node): ShadowRoot | undefined {
-    return node.nodeType === Node.DOCUMENT_FRAGMENT_NODE &&
-        (node as ShadowRoot).host
-        ? (node as ShadowRoot)
-        : undefined;
-}
-
 /** Every shadow root between `element` and its document, innermost first. An
  *  element in a component nested inside another component sits in more than
  *  one, and an event is cut at each boundary. */
 export function shadowRootsOf(element: Element): ShadowRoot[] {
     const roots: ShadowRoot[] = [];
-    let root = asShadowRoot(element.getRootNode());
-    while (root) {
+    let root: Node = element.getRootNode();
+    while (isShadowRoot(root)) {
         roots.push(root);
-        root = asShadowRoot(root.host.getRootNode());
+        root = root.host.getRootNode();
     }
     return roots;
 }
@@ -250,10 +241,10 @@ export function shadowRootsOf(element: Element): ShadowRoot[] {
  *  is retargeted to that root's host, repeatedly for nested roots. */
 export function retargetToDocument(element: Element): Element {
     let current = element;
-    let root = asShadowRoot(current.getRootNode());
-    while (root) {
+    let root: Node = current.getRootNode();
+    while (isShadowRoot(root)) {
         current = root.host;
-        root = asShadowRoot(current.getRootNode());
+        root = current.getRootNode();
     }
     return current;
 }
