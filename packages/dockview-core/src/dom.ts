@@ -232,6 +232,11 @@ export function addStyles(
             link.href = styleSheet.href;
             link.type = styleSheet.type;
             link.rel = 'stylesheet';
+            // `style-src 'nonce-…'` covers external stylesheets too, so a
+            // copied <link> needs the nonce just as a generated <style> does.
+            if (resolvedNonce) {
+                link.setAttribute('nonce', resolvedNonce);
+            }
             document.head.appendChild(link);
             // The <link> will load and apply its rules in the target
             // document. Reading cssRules here would duplicate them
@@ -453,6 +458,14 @@ export function getDockviewTheme(element: HTMLElement): string | undefined {
         );
         if (typeof theme === 'string') {
             break;
+        }
+        // `parentElement` is null at a shadow boundary, so step out through
+        // the host: a theme class set on the web component hosting the dock
+        // still has to be found.
+        if (parent.parentElement === null) {
+            const root = parent.getRootNode();
+            parent = isShadowRoot(root) ? (root.host as HTMLElement) : null;
+            continue;
         }
         parent = parent.parentElement;
     }

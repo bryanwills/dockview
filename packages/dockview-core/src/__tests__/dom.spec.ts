@@ -4,6 +4,7 @@ import {
     disableIframePointEvents,
     disableTextSelection,
     findRelativeZIndexParent,
+    getDockviewTheme,
     isChildEntirelyVisibleWithinParent,
     isInDocument,
     isShadowRoot,
@@ -551,5 +552,41 @@ describe('isShadowRoot', () => {
         expect(isShadowRoot(document.createDocumentFragment())).toBe(false);
         expect(isShadowRoot(null)).toBe(false);
         expect(isShadowRoot(undefined)).toBe(false);
+    });
+});
+
+describe('addStyles and getDockviewTheme across a shadow boundary', () => {
+    test('a copied <link> carries the CSP nonce', () => {
+        const targetDoc = document.implementation.createHTMLDocument('popout');
+        addStyles(
+            targetDoc,
+            [
+                {
+                    href: 'https://example.test/app.css',
+                    type: 'text/css',
+                } as unknown as CSSStyleSheet,
+            ],
+            { nonce: 'abc123' }
+        );
+
+        const link = targetDoc.head.querySelector('link');
+        expect(link?.getAttribute('href')).toBe('https://example.test/app.css');
+        // Without it, `style-src 'nonce-…'` blocks the sheet.
+        expect(link?.getAttribute('nonce')).toBe('abc123');
+    });
+
+    test('getDockviewTheme finds a theme class on the shadow host', () => {
+        const host = document.createElement('div');
+        host.classList.add('dockview-theme-abyss');
+        document.body.appendChild(host);
+        const shadowRoot = host.attachShadow({ mode: 'open' });
+        const dock = document.createElement('div');
+        shadowRoot.appendChild(dock);
+
+        // `parentElement` is null at the boundary, so the walk has to step out
+        // through the host or the popout container gets no theme class.
+        expect(getDockviewTheme(dock)).toBe('dockview-theme-abyss');
+
+        host.remove();
     });
 });

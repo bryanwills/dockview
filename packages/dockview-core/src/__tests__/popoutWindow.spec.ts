@@ -393,6 +393,112 @@ describe('PopoutWindow', () => {
         }
     });
 
+    test('copies the parent document\u2019s adopted stylesheets', async () => {
+        const { externalWindow, externalDoc, fireLoad } =
+            makeFakeExternalWindow();
+        const openSpy = jest
+            .spyOn(window, 'open')
+            .mockReturnValue(externalWindow as Window);
+
+        // A build that ships its CSS as constructed sheets has nothing in
+        // `document.styleSheets` at all.
+        const adopted = [
+            {
+                href: null,
+                cssRules: [{ cssText: '.from-doc-adopted { color: teal; }' }],
+            } as unknown as CSSStyleSheet,
+        ];
+        const original = (document as Partial<Document>).adoptedStyleSheets;
+        Object.defineProperty(document, 'adoptedStyleSheets', {
+            value: adopted,
+            configurable: true,
+        });
+
+        try {
+            const popout = new PopoutWindow('target-id', 'dv-test-class', {
+                url: '/popout.html',
+                top: 0,
+                left: 0,
+                width: 100,
+                height: 100,
+            });
+
+            const opened = popout.open();
+            fireLoad();
+            await opened;
+
+            const texts = Array.from(
+                externalDoc.head.querySelectorAll('style')
+            ).map((el) => el.textContent);
+            expect(texts).toContain('.from-doc-adopted { color: teal; }');
+
+            popout.dispose();
+        } finally {
+            openSpy.mockRestore();
+            if (original === undefined) {
+                delete (document as Partial<Document>).adoptedStyleSheets;
+            } else {
+                Object.defineProperty(document, 'adoptedStyleSheets', {
+                    value: original,
+                    configurable: true,
+                });
+            }
+        }
+    });
+
+    test('copies the stylesheets of every shadow root the dock sits under', async () => {
+        const { externalWindow, externalDoc, fireLoad } =
+            makeFakeExternalWindow();
+        const openSpy = jest
+            .spyOn(window, 'open')
+            .mockReturnValue(externalWindow as Window);
+
+        const sheet = (cssText: string) =>
+            ({
+                href: null,
+                cssRules: [{ cssText }],
+            }) as unknown as CSSStyleSheet;
+
+        const outerHost = document.createElement('div');
+        document.body.appendChild(outerHost);
+        const outerRoot = outerHost.attachShadow({ mode: 'open' });
+        const innerHost = document.createElement('div');
+        outerRoot.appendChild(innerHost);
+        const innerRoot = innerHost.attachShadow({ mode: 'open' });
+        Object.assign(outerRoot, {
+            styleSheets: [sheet('.from-outer { color: green; }')],
+        });
+        Object.assign(innerRoot, {
+            styleSheets: [sheet('.from-inner { color: red; }')],
+        });
+
+        try {
+            const popout = new PopoutWindow('target-id', 'dv-test-class', {
+                url: '/popout.html',
+                top: 0,
+                left: 0,
+                width: 100,
+                height: 100,
+                styleRoot: () => innerRoot,
+            });
+
+            const opened = popout.open();
+            fireLoad();
+            await opened;
+
+            const texts = Array.from(
+                externalDoc.head.querySelectorAll('style')
+            ).map((el) => el.textContent);
+            expect(texts).toContain('.from-inner { color: red; }');
+            expect(texts).toContain('.from-outer { color: green; }');
+
+            popout.dispose();
+        } finally {
+            openSpy.mockRestore();
+            outerHost.remove();
+        }
+    });
+
     test('ignores a style root that is the document', async () => {
         const { externalWindow, externalDoc, fireLoad } =
             makeFakeExternalWindow();
