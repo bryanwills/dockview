@@ -1,8 +1,4 @@
-import {
-    activeElementOf,
-    bindShadowRootListeners,
-    eventOrigin,
-} from '../shadowDom';
+import { bindShadowRootListeners, eventOrigin } from '../shadowDom';
 
 describe('shadowDom helpers', () => {
     let shadowHost: HTMLElement;
@@ -64,41 +60,6 @@ describe('shadowDom helpers', () => {
     test('eventOrigin falls back to the target outside dispatch', () => {
         const e = new Event('keydown');
         expect(eventOrigin(e, document.body)).toBe(e.target);
-    });
-
-    test('activeElementOf reads the shadow root, not the host', () => {
-        const button = document.createElement('button');
-        shadow.appendChild(button);
-        button.focus();
-
-        expect(document.activeElement).toBe(shadowHost);
-        expect(activeElementOf(button)).toBe(button);
-        expect(activeElementOf(document.body)).toBe(shadowHost);
-    });
-
-    test('activeElementOf is null for a detached node', () => {
-        // Matches `getActiveElement` in dockview-core so the two stay
-        // interchangeable; a detached subtree has no focus state to report.
-        const detached = document.createElement('div');
-        expect(activeElementOf(detached)).toBeNull();
-    });
-
-    test('activeElementOf ignores a document that does not have focus', () => {
-        const button = document.createElement('button');
-        shadow.appendChild(button);
-        button.focus();
-        expect(activeElementOf(button)).toBe(button);
-
-        // A background popout keeps its activeElement, so reading it would let
-        // a blurred window claim focus alongside the one that really has it.
-        const hasFocus = jest
-            .spyOn(document, 'hasFocus')
-            .mockReturnValue(false);
-        try {
-            expect(activeElementOf(button)).toBeNull();
-        } finally {
-            hasFocus.mockRestore();
-        }
     });
 
     describe('bindShadowRootListeners', () => {

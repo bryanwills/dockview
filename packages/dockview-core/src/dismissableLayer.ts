@@ -1,4 +1,4 @@
-import { isEventWithin, retargetToDocument, shadowRootsOf } from './dom';
+import { isEventWithin, retargetInto, shadowRootsOf } from './dom';
 import { addDisposableListener } from './events';
 import { CompositeDisposable, IDisposable } from './lifecycle';
 
@@ -30,6 +30,13 @@ export interface DismissableLayerOptions {
     readonly isInside?: (event: PointerEvent) => boolean;
     /** Elements treated as "inside" by the default contains check. */
     readonly elements?: () => HTMLElement[];
+    /** An element the layer is anchored to, used only to locate the shadow
+     *  roots it lives in for {@link focusOut}. `elements` already provides
+     *  that, so pass this when the layer has none — a layer that decides
+     *  inside/outside purely by geometry ({@link isInside} /
+     *  {@link isFocusInside}) would otherwise never see a focus move *within*
+     *  a shadow root, since such a move never reaches the window. */
+    readonly anchor?: () => Node | null | undefined;
     /** Dismiss on `Escape` (default `true`). */
     readonly escape?: boolean;
     /** Extra keys that also dismiss (e.g. `'Enter'`). */
@@ -47,13 +54,14 @@ export interface DismissableLayerOptions {
      *  `false`): the "slide back on focus loss" behaviour. */
     readonly focusOut?: boolean;
     /** Whether a newly-focused element is inside the layer (for
-     *  {@link focusOut}). Always receives the target as a document-level
-     *  listener sees it, so focus inside a shadow root arrives as that root's
-     *  host however the event reached us — a `contains` predicate written
-     *  against the light DOM keeps working. Defaults to checking the event's
-     *  composed path against {@link elements}. Provide this for geometry-based
-     *  testing when the content is a sibling overlay stacked on top of the
-     *  layer. */
+     *  {@link focusOut}). Receives the target as seen from the layer's own
+     *  tree — the one holding {@link anchor}, else the first of
+     *  {@link elements} — so a predicate can always be written against the
+     *  elements it was given: focus inside a *nested* web component arrives as
+     *  that component's host, while focus in the layer's own shadow root
+     *  arrives as the real element. Defaults to checking the event's composed
+     *  path against {@link elements}. Provide this for geometry-based testing
+     *  when the content is a sibling overlay stacked on top of the layer. */
     readonly isFocusInside?: (focused: Element) => boolean;
     /** Listen in the capture phase (default `false`). Use capture when the
      *  layer must see the event before content handlers stop its propagation. */
@@ -155,6 +163,11 @@ export function createDismissableLayer(
         // so an `onDismiss` that moves focus — dispatching a nested `focusin`
         // while this one is still on the stack — can't make the outer event
         // look unseen and dismiss twice.
+        /** A node in the layer's own tree, to scope retargeting and to locate
+         *  the shadow roots to listen on. */
+        const layerScope = (): Node | undefined =>
+            options.anchor?.() ?? options.elements?.()[0];
+
         const seen = new WeakSet<FocusEvent>();
         const onFocusIn = (event: FocusEvent): void => {
             if (seen.has(event)) {
@@ -165,11 +178,14 @@ export function createDismissableLayer(
             if (!(target instanceof Element)) {
                 return;
             }
-            // Retarget so a custom predicate sees the same element whichever
-            // listener caught the event; the default path reads the composed
-            // path, which retargeting doesn't affect.
+            // Retarget into the layer's own tree so a custom predicate sees
+            // the same element whichever listener caught the event — and, for
+            // a layer inside a shadow root, an element it can actually tell
+            // apart rather than the one host everything collapses onto. The
+            // default path reads the composed path, which retargeting doesn't
+            // affect.
             const inside = options.isFocusInside
-                ? options.isFocusInside(retargetToDocument(target))
+                ? options.isFocusInside(retargetInto(target, layerScope()))
                 : isEventWithin(event, options.elements?.() ?? []);
             if (!inside) {
                 options.onDismiss();
@@ -184,8 +200,13 @@ export function createDismissableLayer(
         const bound = new Map<ShadowRoot, IDisposable>();
         const syncShadowRoots = (): void => {
             const wanted = new Set<ShadowRoot>();
-            for (const el of options.elements?.() ?? []) {
-                for (const root of shadowRootsOf(el)) {
+            const anchor = options.anchor?.();
+            const sources: Node[] = [
+                ...(options.elements?.() ?? []),
+                ...(anchor ? [anchor] : []),
+            ];
+            for (const node of sources) {
+                for (const root of shadowRootsOf(node)) {
                     wanted.add(root);
                 }
             }

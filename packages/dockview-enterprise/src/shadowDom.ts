@@ -24,29 +24,6 @@ export function eventOrigin(e: Event, anchor: Node): EventTarget | null {
     return e.target;
 }
 
-/**
- * The focused element as seen from `anchor`'s tree. `document.activeElement` is
- * the shadow host when focus is inside a shadow root, so read the anchor's root
- * node (its shadow root, else its document) instead.
- */
-export function activeElementOf(anchor: Node): Element | null {
-    const root = anchor.getRootNode() as Node & Partial<DocumentOrShadowRoot>;
-    // Every document keeps its `activeElement` while blurred, so a background
-    // popout would still name a focused element. `_activeElement` guards its
-    // own popout walk this way; the other callers read this directly.
-    const doc =
-        root.nodeType === Node.DOCUMENT_NODE
-            ? (root as Document)
-            : anchor.ownerDocument;
-    if (doc && typeof doc.hasFocus === 'function' && !doc.hasFocus()) {
-        return null;
-    }
-    // Detached: the root is the node's own subtree, which has no focus state.
-    // Null, matching `getActiveElement` in dockview-core, so the two stay
-    // interchangeable when they are eventually deduped into one helper.
-    return root.activeElement ?? null;
-}
-
 /** A document-level listener to mirror across every window the dock occupies. */
 export interface DocumentListenerSpec {
     readonly type: string;
