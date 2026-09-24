@@ -63,6 +63,15 @@ export class PointerGhost implements IDisposable {
                 overflow: 'visible',
             });
             popover.appendChild(this.element);
+            // The ghost is a clone with *every* computed property copied
+            // inline (see `Tab._buildGhostElement`), so its own declarations
+            // beat the wrapper's: `pointer-events: auto` wins over the
+            // wrapper's inherited `none` and makes the ghost hit-testable,
+            // and a copied `transform` (a FLIP translation still running when
+            // the drag starts) composes with the wrapper's `translate3d` and
+            // offsets it from the pointer. The wrapper owns both.
+            this.element.style.pointerEvents = 'none';
+            this.element.style.transform = 'none';
         }
         this.container = popover ?? this.element;
 

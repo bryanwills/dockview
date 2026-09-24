@@ -17,6 +17,11 @@ export function addGhostImage(
 
     // move the element off-screen initially otherwise it may in some cases be rendered at (0,0) momentarily
     ghostElement.style.top = '-9999px';
+    // `top` only bites once the element is out of flow. In the document body
+    // that hardly showed; appended into a shadow root it sits inside the dock's
+    // own box, so a ghost without its own `position` (the multi-panel one sets
+    // only `display`) would shift the layout for the frame before removal.
+    ghostElement.style.position = 'absolute';
 
     // Append to the drag source's own document (inside its shadow root, when
     // it has one, so the styles scoped there apply). Per spec a setDragImage

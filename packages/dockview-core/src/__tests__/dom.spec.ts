@@ -579,6 +579,24 @@ describe('shadow-DOM-aware focus and overlay helpers', () => {
         expect(getActiveElement(host)).toBe(componentHost);
     });
 
+    test('getActiveElement ignores a document that does not have focus', () => {
+        const button = document.createElement('button');
+        host.appendChild(button);
+        button.focus();
+        expect(getActiveElement(button)).toBe(button);
+
+        // A background popout keeps its activeElement; reading it would let
+        // refreshState fire a focus the window never had.
+        const hasFocus = jest
+            .spyOn(document, 'hasFocus')
+            .mockReturnValue(false);
+        try {
+            expect(getActiveElement(button)).toBeNull();
+        } finally {
+            hasFocus.mockRestore();
+        }
+    });
+
     test('getActiveElement is null for a detached node', () => {
         expect(getActiveElement(document.createElement('div'))).toBeNull();
     });

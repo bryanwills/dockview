@@ -660,7 +660,18 @@ export function resolveOpaqueBackground(element: HTMLElement): string {
  *  own document), while a web component nested inside that tree still
  *  resolves to its host there. */
 export function getActiveElement(node: Node): Element | null {
-    const root = node.getRootNode() as Partial<DocumentOrShadowRoot>;
+    const root = node.getRootNode() as Node & Partial<DocumentOrShadowRoot>;
+    // Every document keeps its `activeElement` while blurred, so a popout in
+    // the background would still name a focused element and race the window
+    // that really has focus — enough for `FocusTracker.refreshState` to fire
+    // a spurious focus and hand it the active group.
+    const doc =
+        root.nodeType === Node.DOCUMENT_NODE
+            ? (root as Document)
+            : node.ownerDocument;
+    if (doc && typeof doc.hasFocus === 'function' && !doc.hasFocus()) {
+        return null;
+    }
     return root.activeElement ?? null;
 }
 
