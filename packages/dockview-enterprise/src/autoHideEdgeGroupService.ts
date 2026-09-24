@@ -14,7 +14,7 @@ import {
     IAutoHideEdgeGroupHost,
     IAutoHideEdgeGroupService,
 } from 'dockview';
-import { activeElementOf } from './keyboardShared';
+import { activeElementOf } from './shadowDom';
 
 /** Height (px) of the title bar; the content/`always` overlay is inset below it
  *  so nothing paints under the bar. The title bar's own height is set inline to

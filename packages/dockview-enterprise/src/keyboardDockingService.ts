@@ -12,12 +12,11 @@ import {
     IKeyboardDockingService,
 } from 'dockview';
 import {
-    bindDocumentListeners,
-    eventOrigin,
     KEYBOARD_MOVE_ATTRIBUTE,
     matchesBinding,
     readKeyboardNavigation,
 } from './keyboardShared';
+import { bindDocumentListeners, eventOrigin } from './shadowDom';
 
 type DockPhase = 'target' | 'edge';
 

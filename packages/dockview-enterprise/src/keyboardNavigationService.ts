@@ -8,14 +8,16 @@ import {
     IKeyboardNavigationService,
 } from 'dockview';
 import {
-    activeElementOf,
-    bindDocumentListeners,
-    bindShadowRootListeners,
-    eventOrigin,
     KEYBOARD_MOVE_ATTRIBUTE,
     matchesBinding,
     readKeyboardNavigation,
 } from './keyboardShared';
+import {
+    activeElementOf,
+    bindDocumentListeners,
+    bindShadowRootListeners,
+    eventOrigin,
+} from './shadowDom';
 
 const DEFAULT_KEYMAP: DockviewKeybindings = {
     nextTab: 'ctrl+]',
