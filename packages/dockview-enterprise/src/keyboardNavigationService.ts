@@ -1,4 +1,5 @@
 import {
+    getActiveElement,
     DockviewCompositeDisposable as CompositeDisposable,
     DockviewGroupPanel,
     DockviewKeybindings,
@@ -13,7 +14,6 @@ import {
     readKeyboardNavigation,
 } from './keyboardShared';
 import {
-    activeElementOf,
     bindDocumentListeners,
     bindShadowRootListeners,
     eventOrigin,
@@ -171,7 +171,7 @@ export class KeyboardNavigationService
                 // A closing / cross-origin window can throw on access, so ignore it.
             }
         }
-        return activeElementOf(this.host.rootElement);
+        return getActiveElement(this.host.rootElement);
     }
 
     private _isFocusInside(): boolean {
@@ -227,7 +227,7 @@ export class KeyboardNavigationService
         if (tabbables.length === 0) {
             return true;
         }
-        const active = activeElementOf(float);
+        const active = getActiveElement(float);
         const index =
             active instanceof HTMLElement ? tabbables.indexOf(active) : -1;
         const n = tabbables.length;

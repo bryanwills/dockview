@@ -9,12 +9,12 @@ import {
     createCloseButton,
     createDismissableLayer,
     createPinButton,
+    getActiveElement,
     prefersReducedMotion,
     resolveOpaqueBackground,
     IAutoHideEdgeGroupHost,
     IAutoHideEdgeGroupService,
 } from 'dockview';
-import { activeElementOf } from './shadowDom';
 
 /** Height (px) of the title bar; the content/`always` overlay is inset below it
  *  so nothing paints under the bar. The title bar's own height is set inline to
@@ -608,6 +608,11 @@ class EdgeGroupController extends CompositeDisposable {
                 resize: true,
                 focusOut: true,
                 isFocusInside: withinCentre,
+                // The peek decides inside/outside by geometry, so it has no
+                // `elements` to locate its shadow roots from. Without this a
+                // focus move within a shadow-hosted dock never reaches the
+                // window and the peek stays open.
+                anchor: () => this.group.element,
             })
         );
     }
@@ -624,7 +629,7 @@ class EdgeGroupController extends CompositeDisposable {
         // return it to the strip tab so it isn't dropped onto <body>.
         // (Read via the strip's root node so a shadow-hosted dock sees the
         // focused element, not the shadow host.)
-        const active = activeElementOf(this.group.element);
+        const active = getActiveElement(this.group.element);
         const restoreFocus =
             active instanceof Node &&
             (peek.overlay.contains(active) || peek.header.contains(active));

@@ -230,9 +230,9 @@ export function isEventWithin(
 /** Every shadow root between `element` and its document, innermost first. An
  *  element in a component nested inside another component sits in more than
  *  one, and an event is cut at each boundary. */
-export function shadowRootsOf(element: Element): ShadowRoot[] {
+export function shadowRootsOf(node: Node): ShadowRoot[] {
     const roots: ShadowRoot[] = [];
-    let root: Node = element.getRootNode();
+    let root: Node = node.getRootNode();
     while (isShadowRoot(root)) {
         roots.push(root);
         root = root.host.getRootNode();
@@ -240,12 +240,22 @@ export function shadowRootsOf(element: Element): ShadowRoot[] {
     return roots;
 }
 
-/** `element` as a document-level listener sees it: a node inside a shadow root
- *  is retargeted to that root's host, repeatedly for nested roots. */
-export function retargetToDocument(element: Element): Element {
+/**
+ * `element` as a listener rooted in `scope`'s tree sees it. A node in a shadow
+ * root *below* that tree is retargeted to its host there, repeatedly for
+ * nested roots; a node already in the same tree is returned unchanged. Omit
+ * `scope` (or pass a node in the document) for the document-level view, which
+ * is what a window listener gets.
+ *
+ * The scope matters: a layer living inside a shadow root must be able to tell
+ * its own elements apart, and retargeting everything out to the document would
+ * collapse them all onto the one host.
+ */
+export function retargetInto(element: Element, scope?: Node | null): Element {
+    const scopeRoot = scope?.getRootNode();
     let current = element;
     let root: Node = current.getRootNode();
-    while (isShadowRoot(root)) {
+    while (root !== scopeRoot && isShadowRoot(root)) {
         current = root.host;
         root = current.getRootNode();
     }
