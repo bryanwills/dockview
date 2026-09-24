@@ -1,5 +1,5 @@
 import { getPanelData, PanelTransfer } from '../../../dnd/dataTransfer';
-import { toggleClass } from '../../../dom';
+import { getHitTestRoot, toggleClass } from '../../../dom';
 import { CompositeDisposable, IValueDisposable } from '../../../lifecycle';
 import { DockviewComponent } from '../../dockviewComponent';
 import { DockviewGroupPanel } from '../../dockviewGroupPanel';
@@ -216,8 +216,10 @@ export class TabReorderController extends CompositeDisposable {
      * `processDragOver` / `processDragLeave` helpers.
      */
     handlePointerDragMove(clientX: number, clientY: number): void {
-        const sourceDoc = this._tabsList.ownerDocument ?? document;
-        const elAtPoint = sourceDoc.elementFromPoint(clientX, clientY);
+        const elAtPoint = getHitTestRoot(this._tabsList).elementFromPoint(
+            clientX,
+            clientY
+        );
         const inside =
             !!elAtPoint &&
             (this._tabsList.contains(elAtPoint) ||
@@ -277,8 +279,10 @@ export class TabReorderController extends CompositeDisposable {
     }
 
     private isPointInsideTabsList(clientX: number, clientY: number): boolean {
-        const doc = this._tabsList.ownerDocument ?? document;
-        const el = doc.elementFromPoint(clientX, clientY);
+        const el = getHitTestRoot(this._tabsList).elementFromPoint(
+            clientX,
+            clientY
+        );
         return !!el && this._tabsList.contains(el);
     }
 

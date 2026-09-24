@@ -14,6 +14,7 @@ import {
     IAutoHideEdgeGroupHost,
     IAutoHideEdgeGroupService,
 } from 'dockview';
+import { activeElementOf } from './shadowDom';
 
 /** Height (px) of the title bar; the content/`always` overlay is inset below it
  *  so nothing paints under the bar. The title bar's own height is set inline to
@@ -621,11 +622,12 @@ class EdgeGroupController extends CompositeDisposable {
         }
         // If focus is inside the peek (a keyboard close: Esc / pin / close),
         // return it to the strip tab so it isn't dropped onto <body>.
-        const doc = this.group.element.ownerDocument;
+        // (Read via the strip's root node so a shadow-hosted dock sees the
+        // focused element, not the shadow host.)
+        const active = activeElementOf(this.group.element);
         const restoreFocus =
-            doc.activeElement instanceof Node &&
-            (peek.overlay.contains(doc.activeElement) ||
-                peek.header.contains(doc.activeElement));
+            active instanceof Node &&
+            (peek.overlay.contains(active) || peek.header.contains(active));
         // Restore the content container before removing the overlay.
         peek.content.style.width = '';
         peek.content.style.height = '';

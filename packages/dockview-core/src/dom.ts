@@ -360,6 +360,25 @@ export function isShadowRoot(
     );
 }
 
+/**
+ * The document or shadow root to hit-test (`elementFromPoint` /
+ * `elementsFromPoint`) against for `node`. Hit-testing on the document stops
+ * at a shadow host, so when dockview is mounted in a shadow root it has to go
+ * through that root to reach its own elements. Falls back to the owning
+ * document (which may be a popout's) for a detached node.
+ */
+export function getHitTestRoot(node: Node): DocumentOrShadowRoot {
+    const root = node.getRootNode();
+    if (
+        root !== node &&
+        typeof (root as Partial<DocumentOrShadowRoot>).elementsFromPoint ===
+            'function'
+    ) {
+        return root as unknown as DocumentOrShadowRoot;
+    }
+    return node.ownerDocument ?? document;
+}
+
 export function addTestId(element: HTMLElement, id: string): void {
     element.dataset.testid = id;
 }
