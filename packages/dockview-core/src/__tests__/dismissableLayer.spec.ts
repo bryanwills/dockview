@@ -156,4 +156,256 @@ describe('createDismissableLayer', () => {
 
         layer.dispose();
     });
+
+    test('pointerdown and focusin inside a shadow root count as inside', () => {
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+        const root = host.attachShadow({ mode: 'open' });
+        const menu = document.createElement('div');
+        const item = document.createElement('button');
+        menu.appendChild(item);
+        root.appendChild(menu);
+
+        const onDismiss = jest.fn();
+        const onInsidePointerDown = jest.fn();
+        const layer = createDismissableLayer({
+            onDismiss,
+            onInsidePointerDown,
+            focusOut: true,
+            elements: () => [menu],
+        });
+
+        item.dispatchEvent(
+            new MouseEvent('pointerdown', { bubbles: true, composed: true })
+        );
+        item.dispatchEvent(
+            new FocusEvent('focusin', { bubbles: true, composed: true })
+        );
+        expect(onInsidePointerDown).toHaveBeenCalledTimes(1);
+        expect(onDismiss).not.toHaveBeenCalled();
+
+        pointerdownOn(outside);
+        expect(onDismiss).toHaveBeenCalledTimes(1);
+
+        layer.dispose();
+        host.remove();
+    });
+
+    // Regression guard: this layout already worked through retargeting; the
+    // composed-path check must keep it working.
+    test('pointerdown and focusin inside a web component within the layer count as inside', () => {
+        const host = document.createElement('div');
+        inside.appendChild(host);
+        const root = host.attachShadow({ mode: 'open' });
+        const item = document.createElement('button');
+        root.appendChild(item);
+
+        const onDismiss = jest.fn();
+        const onInsidePointerDown = jest.fn();
+        const layer = createDismissableLayer({
+            onDismiss,
+            onInsidePointerDown,
+            focusOut: true,
+            elements: () => [inside],
+        });
+
+        item.dispatchEvent(
+            new MouseEvent('pointerdown', { bubbles: true, composed: true })
+        );
+        item.dispatchEvent(
+            new FocusEvent('focusin', { bubbles: true, composed: true })
+        );
+        expect(onInsidePointerDown).toHaveBeenCalledTimes(1);
+        expect(onDismiss).not.toHaveBeenCalled();
+
+        pointerdownOn(outside);
+        expect(onDismiss).toHaveBeenCalledTimes(1);
+
+        layer.dispose();
+    });
+
+    test('focusOut sees focus moving within the shadow root the layer lives in', () => {
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+        const shadowRoot = host.attachShadow({ mode: 'open' });
+        const menu = document.createElement('div');
+        const item = document.createElement('button');
+        menu.appendChild(item);
+        const elsewhere = document.createElement('button');
+        shadowRoot.append(menu, elsewhere);
+
+        const onDismiss = jest.fn();
+        const layer = createDismissableLayer({
+            onDismiss,
+            focusOut: true,
+            elements: () => [menu],
+        });
+
+        // Entering the shadow root reaches both the root and the window
+        // listeners; it must count once, as inside.
+        item.focus();
+        expect(onDismiss).not.toHaveBeenCalled();
+
+        // A move within the root never reaches the window.
+        elsewhere.focus();
+        expect(onDismiss).toHaveBeenCalledTimes(1);
+
+        layer.dispose();
+        host.remove();
+    });
+
+    test('a custom isFocusInside gets the focus target as the window sees it', () => {
+        const panel = document.createElement('div');
+        document.body.appendChild(panel);
+        const componentHost = document.createElement('div');
+        panel.appendChild(componentHost);
+        const input = document.createElement('input');
+        componentHost.attachShadow({ mode: 'open' }).appendChild(input);
+
+        const onDismiss = jest.fn();
+        const isFocusInside = jest.fn((el: Element) => panel.contains(el));
+        const layer = createDismissableLayer({
+            onDismiss,
+            focusOut: true,
+            isFocusInside,
+        });
+
+        input.focus();
+        expect(isFocusInside).toHaveBeenCalledWith(componentHost);
+        expect(onDismiss).not.toHaveBeenCalled();
+
+        layer.dispose();
+        panel.remove();
+    });
+    test('a custom isFocusInside still gets the host for a move within the layer\u2019s own shadow root', () => {
+        // The shadow-root listener sees the un-retargeted inner node; a
+        // light-DOM `contains` predicate would call that "outside" and dismiss
+        // a layer the focus never left.
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+        const shadowRoot = host.attachShadow({ mode: 'open' });
+        const menu = document.createElement('div');
+        const first = document.createElement('button');
+        const second = document.createElement('button');
+        menu.append(first, second);
+        shadowRoot.appendChild(menu);
+
+        const onDismiss = jest.fn();
+        const isFocusInside = jest.fn(
+            (el: Element) => host.contains(el) || el === host
+        );
+        const layer = createDismissableLayer({
+            onDismiss,
+            focusOut: true,
+            elements: () => [menu],
+            isFocusInside,
+        });
+
+        first.focus();
+        second.focus(); // intra-root: only the shadow listener sees it
+
+        expect(isFocusInside).toHaveBeenCalledWith(host);
+        expect(isFocusInside).not.toHaveBeenCalledWith(second);
+        expect(onDismiss).not.toHaveBeenCalled();
+
+        layer.dispose();
+        host.remove();
+    });
+
+    test('an onDismiss that moves focus dismisses only once', () => {
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+        const shadowRoot = host.attachShadow({ mode: 'open' });
+        const menu = document.createElement('div');
+        const item = document.createElement('button');
+        menu.appendChild(item);
+        const elsewhere = document.createElement('button');
+        shadowRoot.append(menu, elsewhere);
+        // Where focus is returned on close, as the auto-hide peek does. It is
+        // inside the layer, so the nested event is not itself a dismissal.
+        const restoreTo = document.createElement('button');
+        menu.appendChild(restoreTo);
+
+        // Re-entrant: the nested focusin lands while the outer one is still on
+        // the stack, so a single-slot dedupe would let the outer event through
+        // the second listener and dismiss again.
+        const onDismiss = jest.fn(() => restoreTo.focus());
+        const layer = createDismissableLayer({
+            onDismiss,
+            focusOut: true,
+            elements: () => [menu],
+        });
+
+        item.focus();
+        elsewhere.focus();
+
+        expect(onDismiss).toHaveBeenCalledTimes(1);
+
+        layer.dispose();
+        host.remove();
+    });
+
+    test('focusOut sees a move within an outer shadow root when the layer is nested', () => {
+        const outerHost = document.createElement('div');
+        document.body.appendChild(outerHost);
+        const outerRoot = outerHost.attachShadow({ mode: 'open' });
+        const innerHost = document.createElement('div');
+        const siblingInOuter = document.createElement('button');
+        outerRoot.append(innerHost, siblingInOuter);
+        const innerRoot = innerHost.attachShadow({ mode: 'open' });
+        const menu = document.createElement('div');
+        const item = document.createElement('button');
+        menu.appendChild(item);
+        innerRoot.appendChild(menu);
+
+        const onDismiss = jest.fn();
+        const layer = createDismissableLayer({
+            onDismiss,
+            focusOut: true,
+            elements: () => [menu],
+        });
+
+        item.focus();
+        expect(onDismiss).not.toHaveBeenCalled();
+
+        // Cut at the outer host, so neither the window nor the inner root
+        // sees this; only a listener on the outer root does.
+        siblingInOuter.focus();
+        expect(onDismiss).toHaveBeenCalledTimes(1);
+
+        layer.dispose();
+        outerHost.remove();
+    });
+
+    test('focusOut binds the shadow root of a surface attached after the layer', () => {
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+        const shadowRoot = host.attachShadow({ mode: 'open' });
+        const elsewhere = document.createElement('button');
+        shadowRoot.appendChild(elsewhere);
+
+        let menu: HTMLElement | undefined;
+        const onDismiss = jest.fn();
+        const layer = createDismissableLayer({
+            onDismiss,
+            focusOut: true,
+            elements: () => (menu ? [menu] : []),
+        });
+
+        // The surface appears only now: its root was not readable at
+        // construction.
+        menu = document.createElement('div');
+        const item = document.createElement('button');
+        menu.appendChild(item);
+        shadowRoot.appendChild(menu);
+
+        item.focus(); // reaches the window, which re-syncs the roots
+        expect(onDismiss).not.toHaveBeenCalled();
+
+        elsewhere.focus(); // intra-root, needs the newly bound listener
+        expect(onDismiss).toHaveBeenCalledTimes(1);
+
+        layer.dispose();
+        host.remove();
+    });
 });

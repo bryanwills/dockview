@@ -7,6 +7,7 @@ import {
     getActiveElement,
     getOverlayParent,
     isChildEntirelyVisibleWithinParent,
+    isEventWithin,
     isInDocument,
     onDidWindowMoveEnd,
     prefersReducedMotion,
@@ -646,5 +647,87 @@ describe('shadow-DOM-aware focus and overlay helpers', () => {
         expect(onDidBlur).not.toHaveBeenCalled();
 
         tracker.dispose();
+    });
+});
+
+describe('shadow-DOM-aware event targeting', () => {
+    let outer: HTMLElement;
+
+    beforeEach(() => {
+        outer = document.createElement('div');
+        document.body.appendChild(outer);
+    });
+
+    afterEach(() => {
+        outer.remove();
+    });
+
+    /** Dispatches a composed event from `from` and runs `fn` while a window
+     *  listener sees it, where the target has been retargeted. */
+    const observeOnWindow = <T>(from: Element, fn: (e: Event) => T): T => {
+        let result: T | undefined;
+        const listener = (e: Event) => {
+            result = fn(e);
+        };
+        window.addEventListener('pointerdown', listener);
+        from.dispatchEvent(
+            new Event('pointerdown', { bubbles: true, composed: true })
+        );
+        window.removeEventListener('pointerdown', listener);
+        return result as T;
+    };
+
+    const shadowChild = (host: HTMLElement): HTMLElement => {
+        const root = host.attachShadow({ mode: 'open' });
+        const child = document.createElement('button');
+        root.appendChild(child);
+        return child;
+    };
+
+    test('isEventWithin: element inside a shadow root', () => {
+        const container = document.createElement('div');
+        const root = outer.attachShadow({ mode: 'open' });
+        root.appendChild(container);
+        const child = document.createElement('button');
+        container.appendChild(child);
+        const other = document.createElement('div');
+        root.appendChild(other);
+
+        expect(
+            observeOnWindow(child, (e) => isEventWithin(e, [container]))
+        ).toBe(true);
+        expect(
+            observeOnWindow(other, (e) => isEventWithin(e, [container]))
+        ).toBe(false);
+    });
+
+    test('isEventWithin: element containing a web component', () => {
+        const host = document.createElement('div');
+        outer.appendChild(host);
+        const child = shadowChild(host);
+        const sibling = document.createElement('div');
+        document.body.appendChild(sibling);
+
+        expect(observeOnWindow(child, (e) => isEventWithin(e, [outer]))).toBe(
+            true
+        );
+        expect(observeOnWindow(child, (e) => isEventWithin(e, [sibling]))).toBe(
+            false
+        );
+
+        sibling.remove();
+    });
+
+    test('isEventWithin falls back to contains without a composed path', () => {
+        const child = document.createElement('span');
+        outer.appendChild(child);
+        const event = new Event('pointerdown');
+        Object.defineProperty(event, 'composedPath', { value: undefined });
+        Object.defineProperty(event, 'target', { value: child });
+
+        expect(isEventWithin(event, [outer])).toBe(true);
+        expect(isEventWithin(event, [document.createElement('div')])).toBe(
+            false
+        );
     });
 });

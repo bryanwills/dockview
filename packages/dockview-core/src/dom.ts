@@ -212,6 +212,55 @@ export function quasiDefaultPrevented(event: Event): boolean {
     return (event as any)[QUASI_PREVENT_DEFAULT_KEY];
 }
 
+/** Whether the event originated within any of `elements`. Checks the
+ *  composed path, so it also holds for elements inside a shadow root, which a
+ *  window or document listener sees retargeted to the shadow host. */
+export function isEventWithin(
+    event: Event,
+    elements: readonly Element[]
+): boolean {
+    const path = event.composedPath?.() ?? [];
+    if (path.length > 0) {
+        return elements.some((el) => path.includes(el));
+    }
+    const target = event.target;
+    return target instanceof Node && elements.some((el) => el.contains(target));
+}
+
+/** The shadow root `node` is, or `undefined` when it is not one. A shadow
+ *  root is the only document fragment with a `host`. */
+export function asShadowRoot(node: Node): ShadowRoot | undefined {
+    return node.nodeType === Node.DOCUMENT_FRAGMENT_NODE &&
+        (node as ShadowRoot).host
+        ? (node as ShadowRoot)
+        : undefined;
+}
+
+/** Every shadow root between `element` and its document, innermost first. An
+ *  element in a component nested inside another component sits in more than
+ *  one, and an event is cut at each boundary. */
+export function shadowRootsOf(element: Element): ShadowRoot[] {
+    const roots: ShadowRoot[] = [];
+    let root = asShadowRoot(element.getRootNode());
+    while (root) {
+        roots.push(root);
+        root = asShadowRoot(root.host.getRootNode());
+    }
+    return roots;
+}
+
+/** `element` as a document-level listener sees it: a node inside a shadow root
+ *  is retargeted to that root's host, repeatedly for nested roots. */
+export function retargetToDocument(element: Element): Element {
+    let current = element;
+    let root = asShadowRoot(current.getRootNode());
+    while (root) {
+        current = root.host;
+        root = asShadowRoot(current.getRootNode());
+    }
+    return current;
+}
+
 export type CspNonceProvider =
     | string
     | ((targetDocument: Document) => string | undefined);
