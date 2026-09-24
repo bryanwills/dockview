@@ -14321,3 +14321,57 @@ describe('group header direction change signal (DV-14 unblocker)', () => {
         });
     });
 });
+
+describe('popout styles from a shadow-root mount', () => {
+    test('copies the stylesheets of the shadow root dockview is mounted in', async () => {
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+        const shadowRoot = host.attachShadow({ mode: 'open' });
+        const container = document.createElement('div');
+        shadowRoot.appendChild(container);
+        // jsdom has no styleSheets / adoptedStyleSheets on shadow roots.
+        Object.assign(shadowRoot, {
+            styleSheets: [
+                {
+                    href: null,
+                    cssRules: [{ cssText: '.from-shadow { color: red; }' }],
+                },
+            ],
+            adoptedStyleSheets: [],
+        });
+
+        const popoutDocument =
+            document.implementation.createHTMLDocument('popout');
+        const mockWindow = setupMockWindow();
+        Object.defineProperty(mockWindow, 'document', {
+            value: popoutDocument,
+        });
+        const originalOpen = window.open;
+        window.open = () => mockWindow;
+
+        try {
+            const dockview = new DockviewComponent(container, {
+                createComponent(options) {
+                    return new PanelContentPartTest(options.id, options.name);
+                },
+            });
+            dockview.layout(1000, 500);
+            const panel = dockview.addPanel({
+                id: 'panel_1',
+                component: 'default',
+            });
+
+            expect(await dockview.addPopoutGroup(panel.api.group)).toBeTruthy();
+
+            const texts = Array.from(
+                popoutDocument.head.querySelectorAll('style')
+            ).map((style) => style.textContent);
+            expect(texts).toContain('.from-shadow { color: red; }');
+
+            dockview.dispose();
+        } finally {
+            window.open = originalOpen;
+            host.remove();
+        }
+    });
+});
