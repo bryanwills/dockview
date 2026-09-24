@@ -764,11 +764,8 @@ export function getActiveElement(node: Node): Element | null {
  *  otherwise the body of its own document (which may be a popout's). */
 export function getOverlayParent(node: Node): ParentNode {
     const root = node.getRootNode();
-    if (
-        root.nodeType === Node.DOCUMENT_FRAGMENT_NODE &&
-        (root as ShadowRoot).host
-    ) {
-        return root as ShadowRoot;
+    if (isShadowRoot(root)) {
+        return root;
     }
     return (node.ownerDocument ?? document).body;
 }

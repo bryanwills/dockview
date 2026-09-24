@@ -1,4 +1,4 @@
-import { getOverlayParent } from '../../dom';
+import { getOverlayParent, isShadowRoot } from '../../dom';
 import { IDisposable } from '../../lifecycle';
 
 export interface PointerGhostOptions {
@@ -48,7 +48,7 @@ export class PointerGhost implements IDisposable {
         // wrapper takes the popover UA styles so the ghost's own are untouched.
         let popover: HTMLElement | undefined;
         if (
-            parent.nodeType === Node.DOCUMENT_FRAGMENT_NODE &&
+            isShadowRoot(parent) &&
             typeof this.element.showPopover === 'function'
         ) {
             popover = this.element.ownerDocument.createElement('div');
