@@ -224,24 +224,15 @@ export function isEventWithin(
     return target instanceof Node && elements.some((el) => el.contains(target));
 }
 
-/** The shadow root `node` is, or `undefined` when it is not one. A shadow
- *  root is the only document fragment with a `host`. */
-export function asShadowRoot(node: Node): ShadowRoot | undefined {
-    return node.nodeType === Node.DOCUMENT_FRAGMENT_NODE &&
-        (node as ShadowRoot).host
-        ? (node as ShadowRoot)
-        : undefined;
-}
-
 /** Every shadow root between `element` and its document, innermost first. An
  *  element in a component nested inside another component sits in more than
  *  one, and an event is cut at each boundary. */
 export function shadowRootsOf(element: Element): ShadowRoot[] {
     const roots: ShadowRoot[] = [];
-    let root = asShadowRoot(element.getRootNode());
-    while (root) {
+    let root: Node = element.getRootNode();
+    while (isShadowRoot(root)) {
         roots.push(root);
-        root = asShadowRoot(root.host.getRootNode());
+        root = root.host.getRootNode();
     }
     return roots;
 }
@@ -250,10 +241,10 @@ export function shadowRootsOf(element: Element): ShadowRoot[] {
  *  is retargeted to that root's host, repeatedly for nested roots. */
 export function retargetToDocument(element: Element): Element {
     let current = element;
-    let root = asShadowRoot(current.getRootNode());
-    while (root) {
+    let root: Node = current.getRootNode();
+    while (isShadowRoot(root)) {
         current = root.host;
-        root = asShadowRoot(current.getRootNode());
+        root = current.getRootNode();
     }
     return current;
 }
@@ -268,7 +259,7 @@ export interface AddStylesOptions {
 
 export function addStyles(
     document: Document,
-    styleSheetList: StyleSheetList,
+    styleSheetList: StyleSheetList | readonly CSSStyleSheet[],
     options: AddStylesOptions = {}
 ) {
     const styleSheets = Array.from(styleSheetList);
@@ -281,6 +272,11 @@ export function addStyles(
             link.href = styleSheet.href;
             link.type = styleSheet.type;
             link.rel = 'stylesheet';
+            // `style-src 'nonce-…'` covers external stylesheets too, so a
+            // copied <link> needs the nonce just as a generated <style> does.
+            if (resolvedNonce) {
+                link.setAttribute('nonce', resolvedNonce);
+            }
             document.head.appendChild(link);
             // The <link> will load and apply its rules in the target
             // document. Reading cssRules here would duplicate them
@@ -350,6 +346,18 @@ export function isInDocument(element: Element): boolean {
     }
 
     return false;
+}
+
+/** Duck-typed so it holds for a shadow root from another window's realm. */
+export function isShadowRoot(
+    node: Node | null | undefined
+): node is ShadowRoot {
+    return (
+        !!node &&
+        node.nodeType === Node.DOCUMENT_FRAGMENT_NODE &&
+        'host' in node &&
+        !!(node as ShadowRoot).host
+    );
 }
 
 /**
@@ -509,6 +517,14 @@ export function getDockviewTheme(element: HTMLElement): string | undefined {
         );
         if (typeof theme === 'string') {
             break;
+        }
+        // `parentElement` is null at a shadow boundary, so step out through
+        // the host: a theme class set on the web component hosting the dock
+        // still has to be found.
+        if (parent.parentElement === null) {
+            const root = parent.getRootNode();
+            parent = isShadowRoot(root) ? (root.host as HTMLElement) : null;
+            continue;
         }
         parent = parent.parentElement;
     }
