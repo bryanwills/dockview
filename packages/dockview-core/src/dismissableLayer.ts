@@ -1,3 +1,4 @@
+import { isEventWithin, retargetToDocument, shadowRootsOf } from './dom';
 import { addDisposableListener } from './events';
 import { CompositeDisposable, IDisposable } from './lifecycle';
 
@@ -22,8 +23,8 @@ export interface DismissableLayerOptions {
     /** A pointerdown landed *inside* the layer (not a dismissal). Use it to
      *  mark interaction (e.g. make a transient layer sticky). */
     readonly onInsidePointerDown?: (event: PointerEvent) => void;
-    /** Whether a pointer event is inside the layer. Defaults to a DOM
-     *  `contains` check against {@link DismissableLayerOptions.elements}.
+    /** Whether a pointer event is inside the layer. Defaults to checking the
+     *  event's composed path against {@link DismissableLayerOptions.elements}.
      *  Provide this for geometry-based hit testing (e.g. when the visible
      *  content is a sibling overlay stacked on top of the layer). */
     readonly isInside?: (event: PointerEvent) => boolean;
@@ -46,9 +47,13 @@ export interface DismissableLayerOptions {
      *  `false`): the "slide back on focus loss" behaviour. */
     readonly focusOut?: boolean;
     /** Whether a newly-focused element is inside the layer (for
-     *  {@link focusOut}). Defaults to a `contains` check against
-     *  {@link elements}. Provide this for geometry-based testing when the
-     *  content is a sibling overlay stacked on top of the layer. */
+     *  {@link focusOut}). Always receives the target as a document-level
+     *  listener sees it, so focus inside a shadow root arrives as that root's
+     *  host however the event reached us — a `contains` predicate written
+     *  against the light DOM keeps working. Defaults to checking the event's
+     *  composed path against {@link elements}. Provide this for geometry-based
+     *  testing when the content is a sibling overlay stacked on top of the
+     *  layer. */
     readonly isFocusInside?: (focused: Element) => boolean;
     /** Listen in the capture phase (default `false`). Use capture when the
      *  layer must see the event before content handlers stop its propagation. */
@@ -62,8 +67,8 @@ export interface DismissableLayerOptions {
  * peeks): while it lives it watches a configurable set of dismiss signals
  * (Escape / extra keys, outside-pointerdown with an optional grace window,
  * window resize, focus moving outside) and calls `onDismiss`. Inside/outside is
- * decided by an `isInside` predicate (geometry) or a `contains` check against
- * `elements`. Dispose to detach every listener.
+ * decided by an `isInside` predicate (geometry) or by checking the event's
+ * composed path against `elements`. Dispose to detach every listener.
  *
  * It owns only the *signals*, not the surface element, its position, or any
  * hover/keep-open policy, so callers keep their own element lifecycle and
@@ -87,11 +92,7 @@ export function createDismissableLayer(
         if (options.isInside) {
             return options.isInside(event);
         }
-        const target = event.target;
-        if (!(target instanceof Node)) {
-            return false;
-        }
-        return (options.elements?.() ?? []).some((el) => el.contains(target));
+        return isEventWithin(event, options.elements?.() ?? []);
     };
 
     if (escape || keys.length > 0) {
@@ -144,27 +145,92 @@ export function createDismissableLayer(
     }
 
     if (options.focusOut) {
-        const isFocusInside = (focused: Element): boolean => {
-            if (options.isFocusInside) {
-                return options.isFocusInside(focused);
-            }
-            return (options.elements?.() ?? []).some((el) =>
-                el.contains(focused)
-            );
-        };
         // `focusin` bubbles to the window; capture so it's seen regardless of
-        // content handlers.
+        // content handlers. A focus move *within* a shadow root never reaches
+        // the window (the event is retargeted to the host and its path cut
+        // there), so also listen on the shadow roots the layer lives in.
+        //
+        // An event entering the layer's tree from outside reaches both the
+        // window and those roots. A `WeakSet` (not a single slot) dedupes it,
+        // so an `onDismiss` that moves focus — dispatching a nested `focusin`
+        // while this one is still on the stack — can't make the outer event
+        // look unseen and dismiss twice.
+        const seen = new WeakSet<FocusEvent>();
         const onFocusIn = (event: FocusEvent): void => {
+            if (seen.has(event)) {
+                return;
+            }
+            seen.add(event);
             const target = event.target;
-            if (target instanceof Element && !isFocusInside(target)) {
+            if (!(target instanceof Element)) {
+                return;
+            }
+            // Retarget so a custom predicate sees the same element whichever
+            // listener caught the event; the default path reads the composed
+            // path, which retargeting doesn't affect.
+            const inside = options.isFocusInside
+                ? options.isFocusInside(retargetToDocument(target))
+                : isEventWithin(event, options.elements?.() ?? []);
+            if (!inside) {
                 options.onDismiss();
             }
         };
-        win.addEventListener('focusin', onFocusIn, capture);
-        disposables.addDisposables({
-            dispose: () =>
-                win.removeEventListener('focusin', onFocusIn, capture),
-        });
+
+        // `elements()` is resolved per event elsewhere, so the roots can't be
+        // read once at construction: a layer built before its surface is
+        // attached, or moved into a shadow root later, would keep the bug.
+        // Focus *entering* the tree always reaches the window, so re-sync
+        // there, before any intra-root move can happen.
+        const bound = new Map<ShadowRoot, IDisposable>();
+        const syncShadowRoots = (): void => {
+            const wanted = new Set<ShadowRoot>();
+            for (const el of options.elements?.() ?? []) {
+                for (const root of shadowRootsOf(el)) {
+                    wanted.add(root);
+                }
+            }
+            for (const [root, listener] of bound) {
+                if (!wanted.has(root)) {
+                    listener.dispose();
+                    bound.delete(root);
+                }
+            }
+            for (const root of wanted) {
+                if (bound.has(root)) {
+                    continue;
+                }
+                bound.set(
+                    root,
+                    addDisposableListener(
+                        root as unknown as HTMLElement,
+                        'focusin',
+                        onFocusIn,
+                        capture
+                    )
+                );
+            }
+        };
+
+        disposables.addDisposables(
+            addDisposableListener(
+                win,
+                'focusin',
+                (event) => {
+                    syncShadowRoots();
+                    onFocusIn(event);
+                },
+                capture
+            ),
+            {
+                dispose: () => {
+                    for (const [, listener] of bound) {
+                        listener.dispose();
+                    }
+                    bound.clear();
+                },
+            }
+        );
+        syncShadowRoots();
     }
 
     return disposables;
