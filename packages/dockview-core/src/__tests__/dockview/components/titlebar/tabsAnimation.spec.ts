@@ -1881,6 +1881,59 @@ describe('tabs - animation', () => {
             expect(moveTabGroupMock).toHaveBeenCalledWith('tg-1', 2);
         });
 
+        test('pointer chip drag commits the group move when the strip is inside a shadow root', () => {
+            const { tabs, group, tabGroup, chip } = setupChipDrag('smooth', [
+                'panel-a',
+                'panel-b',
+                'panel-c',
+            ]);
+
+            const moveTabGroupMock = jest.fn();
+            (group.model as any).moveTabGroup = moveTabGroupMock;
+
+            const host = document.createElement('div');
+            document.body.appendChild(host);
+            const shadowRoot = host.attachShadow({ mode: 'open' });
+            shadowRoot.appendChild(tabs.element);
+
+            triggerChipDragStart(tabs, tabGroup, chip);
+            getAnimState(tabs).currentInsertionIndex = 2;
+
+            // Hit-testing on the document stops at the shadow host; only the
+            // shadow root sees the strip. (jsdom lacks the method on shadow
+            // roots, so define it.)
+            const tabsList = (tabs as any)._tabsList as HTMLElement;
+            jest.spyOn(document, 'elementFromPoint').mockReturnValue(host);
+            Object.assign(shadowRoot, {
+                elementFromPoint: jest.fn().mockReturnValue(tabsList),
+            });
+            Object.assign(shadowRoot, {
+                elementsFromPoint: jest.fn().mockReturnValue([tabsList]),
+            });
+
+            const controller = PointerDragController.getInstance();
+            controller.beginDrag({
+                pointerEvent: new PointerEvent('pointerdown', {
+                    pointerId: 1,
+                    pointerType: 'touch',
+                }),
+                source: chip.element,
+                getData: () => ({ dispose: jest.fn() }),
+            });
+            window.dispatchEvent(
+                new PointerEvent('pointerup', {
+                    pointerId: 1,
+                    pointerType: 'touch',
+                    clientX: 100,
+                    clientY: 10,
+                })
+            );
+
+            expect(moveTabGroupMock).toHaveBeenCalledWith('tg-1', 2);
+
+            host.remove();
+        });
+
         // A group can never land inside another group: the reorder controller
         // snaps a chip drag out of any group range it falls in. The per-tab
         // overlay doesn't consult that, so it offers the plain left/right slot
